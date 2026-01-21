@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quilt and Drapes Calculator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .section-header { border-bottom: 2px solid #dee2e6; margin-bottom: 1rem; padding-bottom: 0.5rem; }
+        .table-totals { background-color: #f8f9fa; font-weight: bold; }
+    </style>
+</head>
+<body class="bg-light p-4">
+    <div class="container bg-white p-4 rounded shadow-sm">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Quilt and Drapes Calculator</h2>
+            <button class="btn btn-outline-danger btn-sm" onclick="globalReset()">Reset Entire App</button>
+        </div>
+
+        <div class="card mb-4 border-primary shadow-sm">
+            <div class="card-body">
+                <h5 class="text-primary section-header">1. Search Customer</h5>
+                <div class="input-group">
+                    <input type="text" id="searchQuery" class="form-control" placeholder="Enter Name or Phone">
+                    <button class="btn btn-primary" onclick="searchCustomer()">Search</button>
+                </div>
+                <div id="searchResults" class="list-group mt-2"></div>
+            </div>
+        </div>
+
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+                <h5 class="section-header">2. Add Window</h5>
+                <div class="row g-3">
+                    <div class="col-md-4"><label>Window Name</label><input type="text" id="winName" class="form-control"></div>
+                    <div class="col-md-4"><label>Stitch Type</label>
+                        <select id="stitch" class="form-select">
+                            <option>Pleated</option><option>Ripple</option><option>Eyelet</option>
+                            <option>Roman Blinds 48"</option><option>Roman Blinds 54"</option>
+                            <option>Blinds (Regular)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><label>Lining Type</label>
+                        <select id="lining" class="form-select">
+                            <option value="No Lining">No Lining</option>
+                            <option value="Normal Lining">Normal Lining</option>
+                            <option value="100% Blackout">100% Blackout</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2"><label>Width (in)</label><input type="number" id="width" class="form-control" value="0"></div>
+                    <div class="col-md-2"><label>Height (in)</label><input type="number" id="height" class="form-control" value="0"></div>
+                    <div class="col-md-4"><label>Window Image</label><input type="file" id="winImage" class="form-control" accept="image/*"></div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="isDouble">
+                            <label class="form-check-label">Double Layer?</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button class="btn btn-success" onclick="addWindow()">Add to Table</button>
+                    <button class="btn btn-outline-secondary" onclick="resetWindowForm()">Reset Form</button>
+                </div>
+            </div>
+        </div>
+
+        <table class="table table-bordered table-hover" id="windowTable">
+            <thead class="table-dark">
+                <tr><th>Window</th><th>Stitch</th><th>Lining</th><th>Dimensions</th><th>Qty</th><th>Image</th><th>Action</th></tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot>
+                <tr class="table-totals">
+                    <td colspan="4" class="text-end">Total Quantity:</td>
+                    <td id="totalQtyDisplay">0.00</td>
+                    <td colspan="2"></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="card p-3 bg-light shadow-sm">
+            <h5 class="section-header">3. Customer Details & Showroom</h5>
+            <div class="row g-2 mb-3">
+                <div class="col-md-4">
+                    <label>Showroom Location</label>
+                    <select id="showroom" class="form-select">
+                        <option value="">Select Branch</option>
+                        <option value="Anna Nagar">Anna Nagar</option>
+                        <option value="Valasaravakkam">Valasaravakkam</option>
+                    </select>
+                </div>
+                <div class="col-md-4"><label>Name</label><input type="text" id="custName" class="form-control"></div>
+                <div class="col-md-4"><label>Phone</label><input type="text" id="custPhone" class="form-control"></div>
+                <div class="col-12"><label>Address</label><textarea id="custAddr" class="form-control"></textarea></div>
+            </div>
+            <button class="btn btn-dark w-100 py-2" onclick="saveFullOrder()">Save Order & Download PDF</button>
+        </div>
+    </div>
+
+    <div class="modal fade" id="imageModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header"><h5>Window Images</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body text-center" id="modalImageContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let entries = [];
+        let currentCustomerId = null;
+        let lastSearchResults = [];
+
+        function calculateQty(stitch, w, h) {
+            const h_factor = Math.round(((h + 14) / 39) * 100) / 100;
+            if (stitch === "Pleated") return (Math.round(w / 18) * h_factor);
+            if (stitch === "Ripple") return (Math.round(w / 20) * h_factor);
+            if (stitch === "Eyelet") return (Math.round(w / 24) * h_factor);
+            if (stitch.includes("Roman")) return Math.ceil(w / (stitch.includes("48") ? 44 : 50)) * h_factor;
+            return 0;
+        }
+
+        function resetWindowForm() {
+            document.getElementById('winName').value = "";
+            document.getElementById('stitch').selectedIndex = 0;
+            document.getElementById('lining').selectedIndex = 0;
+            document.getElementById('width').value = 0;
+            document.getElementById('height').value = 0;
+            document.getElementById('winImage').value = "";
+            document.getElementById('isDouble').checked = false;
+        }
+
+        function globalReset() {
+            if(confirm("Are you sure you want to clear everything? Saved data in MongoDB will NOT be deleted, but this screen will reset.")){
+                entries = [];
+                currentCustomerId = null;
+                document.getElementById('custName').value = "";
+                document.getElementById('custPhone').value = "";
+                document.getElementById('custAddr').value = "";
+                document.getElementById('showroom').selectedIndex = 0;
+                document.getElementById('searchQuery').value = "";
+                document.getElementById('searchResults').innerHTML = "";
+                resetWindowForm();
+                renderTable();
+            }
+        }
+
+        function addWindow() {
+            const fileInput = document.getElementById('winImage');
+            const name = document.getElementById('winName').value;
+            const stitch = document.getElementById('stitch').value;
+            const lining = document.getElementById('lining').value;
+            const w = parseFloat(document.getElementById('width').value);
+            const h = parseFloat(document.getElementById('height').value);
+            const isDouble = document.getElementById('isDouble').checked;
+
+            const qty = calculateQty(stitch, w, h);
+            const entry = { 
+                "Window": isDouble ? name + " - Layer 1" : name, 
+                "Stitch Type": stitch, 
+                "Lining": lining,
+                "Width (inches)": w, 
+                "Height (inches)": h, 
+                "Quantity": qty, 
+                "file": fileInput.files[0] || null 
+            };
+            
+            entries.push(entry);
+            if (isDouble) entries.push({ ...entry, "Window": name + " - Layer 2", "file": null });
+            renderTable();
+            fileInput.value = ""; 
+        }
+
+        function renderTable() {
+            const tbody = document.querySelector('#windowTable tbody');
+            let totalQty = 0;
+            tbody.innerHTML = entries.map((e, i) => {
+                const q = parseFloat(e.Quantity || e.qty || 0);
+                totalQty += q;
+                return `
+                <tr>
+                    <td>${e.Window || e.name}</td>
+                    <td>${e["Stitch Type"] || e.stitch}</td>
+                    <td>${e.Lining || 'None'}</td>
+                    <td>${e["Width (inches)"] || e.width}"x${e["Height (inches)"] || e.height}"</td>
+                    <td><b>${q.toFixed(2)}</b></td>
+                    <td>${((e.Images && e.Images.length > 0) || e.file) ? `<button class="btn btn-sm btn-outline-info" onclick="viewImages(${i})">View</button>` : '-'}</td>
+                    <td><button class="btn btn-danger btn-sm" onclick="entries.splice(${i},1);renderTable()">Delete</button></td>
+                </tr>
+            `}).join('');
+            document.getElementById('totalQtyDisplay').innerText = totalQty.toFixed(2);
+        }
+
+        async function searchCustomer() {
+            const res = await fetch(`/api/customers/search?term=${document.getElementById('searchQuery').value}`);
+            lastSearchResults = await res.json();
+            document.getElementById('searchResults').innerHTML = lastSearchResults.map((r, i) => `
+                <button class="list-group-item list-group-item-action" onclick="selectCust(${i})">
+                    <strong>${r.name}</strong> (${r.phone}) - Branch: ${r.showroom || 'N/A'}
+                </button>
+            `).join('');
+        }
+
+        function selectCust(idx) {
+            const r = lastSearchResults[idx];
+            currentCustomerId = r.id;
+            document.getElementById('custName').value = r.name;
+            document.getElementById('custPhone').value = r.phone;
+            document.getElementById('custAddr').value = r.address;
+            document.getElementById('showroom').value = r.showroom || "";
+            entries = r.previous_entries || [];
+            renderTable();
+            document.getElementById('searchResults').innerHTML = "";
+        }
+
+        function viewImages(idx) {
+            const entry = entries[idx];
+            const container = document.getElementById('modalImageContainer');
+            container.innerHTML = "";
+            if (entry.file) {
+                const reader = new FileReader();
+                reader.onload = (e) => container.innerHTML += `<img src="${e.target.result}" class="img-fluid mb-2 border rounded">`;
+                reader.readAsDataURL(entry.file);
+            }
+            (entry.Images || []).forEach(ref => {
+                container.innerHTML += `<img src="/api/image/${ref.replace("gridfs:", "")}" class="img-fluid mb-2 border rounded">`;
+            });
+            new bootstrap.Modal(document.getElementById('imageModal')).show();
+        }
+
+        async function saveFullOrder() {
+            const formData = new FormData();
+            formData.append('customer_id', currentCustomerId);
+            formData.append('name', document.getElementById('custName').value);
+            formData.append('phone', document.getElementById('custPhone').value);
+            formData.append('address', document.getElementById('custAddr').value);
+            formData.append('showroom', document.getElementById('showroom').value);
+            
+            const cleanEntries = entries.map((e, i) => {
+                if (e.file) formData.append(`images_${i}`, e.file);
+                const { file, ...rest } = e;
+                return rest;
+            });
+            formData.append('entries', JSON.stringify(cleanEntries));
+
+            await fetch('/api/orders', { method: 'POST', body: formData });
+            
+            const customer = { 
+                name: document.getElementById('custName').value, 
+                phone: document.getElementById('custPhone').value, 
+                showroom: document.getElementById('showroom').value 
+            };
+            const pdfRes = await fetch('/api/download-pdf', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ customer, entries }) });
+            const blob = await pdfRes.blob();
+            const link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = `Order_${customer.name}.pdf`;
+            link.click();
+            alert("Order Saved & PDF Downloaded!");
+        }
+    </script>
+</body>
+</html>
