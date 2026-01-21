@@ -2,104 +2,137 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quilt and Drapes Calculator</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .top-bar { background: #1a1a1a; color: white; padding: 1rem 0; margin-bottom: 2rem; }
-        .section-header { border-bottom: 2px solid #dee2e6; margin-bottom: 1rem; padding-bottom: 0.5rem; }
-        .table-totals { background-color: #f8f9fa; font-weight: bold; }
+        body { font-size: 14px; }
+        .top-bar { background: #1a1a1a; color: white; padding: 0.8rem 0; margin-bottom: 1.5rem; }
+        .section-header { border-bottom: 2px solid #dee2e6; margin-bottom: 1rem; padding-bottom: 0.5rem; font-weight: bold; }
         .edit-highlight { border: 2px solid #ffc107 !important; background-color: #fffdf5; }
+        .summary-card { background: #f8f9fa; border: 1px solid #333; border-radius: 8px; text-align: center; padding: 10px; }
     </style>
 </head>
 <body class="bg-light">
-    <div class="top-bar shadow">
-        <div class="container d-flex justify-content-between align-items-center">
-            <h3 class="m-0">Quilt and Drapes</h3>
+    <div class="top-bar shadow-sm sticky-top">
+        <div class="container d-flex justify-content-between align-items-center px-3">
+            <h5 class="m-0">Quilt and Drapes</h5>
             <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
         </div>
     </div>
 
-    <div class="container bg-white p-4 rounded shadow-sm mb-5">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <h4>Fabric & Track Calculator</h4>
-            <button class="btn btn-outline-danger btn-sm" onclick="location.reload()">Refresh & Reset All</button>
+    <div class="container-fluid px-3 mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="text-muted m-0">Mobile Calculator</h6>
+            <button class="btn btn-danger btn-sm" onclick="location.reload()">Reset App</button>
         </div>
 
-        <div class="card mb-4 border-primary">
-            <div class="card-body">
-                <h5 class="text-primary section-header">1. Search Customer</h5>
+        <div class="card mb-3 border-primary shadow-sm">
+            <div class="card-body p-3">
+                <h6 class="text-primary section-header">1. Search Customer</h6>
                 <div class="input-group">
-                    <input type="text" id="searchQuery" class="form-control" placeholder="Name or Phone">
+                    <input type="text" id="searchQuery" class="form-control" placeholder="Name/Phone">
                     <button class="btn btn-primary" onclick="searchCustomer()">Search</button>
                 </div>
                 <div id="searchResults" class="list-group mt-2"></div>
             </div>
         </div>
 
-        <div class="card mb-4" id="windowCard">
-            <div class="card-body">
-                <h5 class="section-header" id="formHeader">2. Add Window</h5>
-                <div class="row g-3">
-                    <div class="col-md-4"><label>Window Name</label><input type="text" id="winName" class="form-control"></div>
-                    <div class="col-md-4"><label>Stitch Type</label>
+        <div class="card mb-3 shadow-sm" id="windowCard">
+            <div class="card-body p-3">
+                <h6 class="section-header" id="formHeader">2. Add Window</h6>
+                <div class="row">
+                    <div class="col-12 col-md-4">
+                        <label>Window Name</label>
+                        <input type="text" id="winName" class="form-control">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label>Description</label>
+                        <input type="text" id="winDesc" class="form-control" placeholder="e.g. Master Bedroom North">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label>Stitch Type</label>
                         <select id="stitch" class="form-select">
                             <option>Pleated</option><option>Ripple</option><option>Eyelet</option>
                             <option>Roman Blinds 48"</option><option>Roman Blinds 54"</option>
                             <option>Blinds (Regular)</option>
                         </select>
                     </div>
-                    <div class="col-md-4"><label>Lining</label>
+                    <div class="col-12 col-md-4 mt-2">
+                        <label>Lining</label>
                         <select id="lining" class="form-select">
                             <option>No Lining</option><option>Normal Lining</option><option>100% Blackout</option>
                         </select>
                     </div>
-                    <div class="col-md-2"><label>Width (in)</label><input type="number" id="width" class="form-control" value="0"></div>
-                    <div class="col-md-2"><label>Height (in)</label><input type="number" id="height" class="form-control" value="0"></div>
-                    <div class="col-md-4"><label>Image</label><input type="file" id="winImage" class="form-control" accept="image/*"></div>
-                    <div class="col-md-4 d-flex align-items-end">
-                        <div class="form-check mb-2">
+                    <div class="col-6 mt-2">
+                        <label>Width (in)</label>
+                        <input type="number" id="width" class="form-control" value="0">
+                    </div>
+                    <div class="col-6 mt-2">
+                        <label>Height (in)</label>
+                        <input type="number" id="height" class="form-control" value="0">
+                    </div>
+                    <div class="col-12 mt-3">
+                        <label>Images (Multiple)</label>
+                        <input type="file" id="winImage" class="form-control" accept="image/*" multiple capture="environment">
+                    </div>
+                    <div class="col-12 mt-3">
+                        <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="isDouble">
-                            <label class="form-check-label">Double Layer?</label>
+                            <label class="form-check-label" for="isDouble">Double Layer?</label>
                         </div>
                     </div>
                 </div>
-                <div class="mt-3">
-                    <button class="btn btn-success" id="submitBtn" onclick="addOrUpdateWindow()">Add to Table</button>
-                    <button class="btn btn-outline-secondary" onclick="resetWindowForm()">Reset Form</button>
+                <div class="row g-2 mt-2">
+                    <div class="col-8">
+                        <button class="btn btn-success w-100" id="submitBtn" onclick="addOrUpdateWindow()">Add to Table</button>
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-outline-secondary w-100" onclick="resetWindowForm()">Clear</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <table class="table table-bordered table-hover" id="windowTable">
-            <thead class="table-dark">
-                <tr><th>Window</th><th>Stitch</th><th>Dim.</th><th>Qty</th><th>Track(ft)</th><th>Img</th><th>Action</th></tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-3"><div class="summary-card"><small>Total Mtrs</small><div id="totalMtrs" class="fw-bold">0.00</div></div></div>
+            <div class="col-6 col-md-3"><div class="summary-card"><small>Total SQFT</small><div id="totalSqft" class="fw-bold">0.00</div></div></div>
+            <div class="col-6 col-md-3"><div class="summary-card"><small>Track (Ft)</small><div id="totalTrack" class="fw-bold">0.0</div></div></div>
+            <div class="col-6 col-md-3"><div class="summary-card"><small>Panels</small><div id="totalPanels" class="fw-bold">0</div></div></div>
+        </div>
 
-        <div class="card p-3 bg-light">
-            <h5 class="section-header">3. Customer Details & Showroom</h5>
-            <div class="row g-2 mb-3">
-                <div class="col-md-4">
-                    <label>Showroom</label>
+        <div class="table-responsive bg-white rounded shadow-sm mb-3">
+            <table class="table table-sm table-bordered mb-0" id="windowTable">
+                <thead class="table-dark">
+                    <tr><th>Window</th><th>Qty</th><th>Track/SQFT</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="card p-3 bg-white shadow-sm border-0">
+            <h6 class="section-header">3. Customer Details</h6>
+            <div class="row g-2">
+                <div class="col-12">
+                    <label>Branch</label>
                     <select id="showroom" class="form-select">
                         <option value="">Select Branch</option>
                         <option value="Anna Nagar">Anna Nagar</option>
                         <option value="Valasaravakkam">Valasaravakkam</option>
                     </select>
                 </div>
-                <div class="col-md-4"><label>Name</label><input type="text" id="custName" class="form-control"></div>
-                <div class="col-md-4"><label>Phone</label><input type="text" id="custPhone" class="form-control"></div>
-                <div class="col-12"><textarea id="custAddr" class="form-control" placeholder="Address"></textarea></div>
+                <div class="col-12"><label>Name</label><input type="text" id="custName" class="form-control"></div>
+                <div class="col-12"><label>Phone</label><input type="tel" id="custPhone" class="form-control"></div>
+                <div class="col-12"><label>Address</label><textarea id="custAddr" class="form-control" rows="2"></textarea></div>
             </div>
-            <button class="btn btn-dark w-100 py-2" onclick="saveFullOrder()">Save & Download PDF</button>
+            <button class="btn btn-dark w-100 mt-4 py-3 shadow" onclick="saveFullOrder()">SAVE & DOWNLOAD PDF</button>
         </div>
     </div>
 
     <div class="modal fade" id="imageModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-fullscreen-sm-down">
             <div class="modal-content">
-                <div class="modal-header"><h5>Images</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-header"><h5>Window Images</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body text-center" id="modalImageContainer"></div>
             </div>
         </div>
@@ -112,12 +145,25 @@
         let lastSearchResults = [];
         let editingIndex = null;
 
+        // --- Calculation Logic ---
         function calculateQty(stitch, w, h) {
             const h_factor = Math.round(((h + 14) / 39) * 100) / 100;
             if (stitch === "Pleated") return (Math.round(w / 18) * h_factor);
             if (stitch === "Ripple") return (Math.round(w / 20) * h_factor);
             if (stitch === "Eyelet") return (Math.round(w / 24) * h_factor);
-            if (stitch.includes("Roman")) return Math.ceil(w / (stitch.includes("48") ? 44 : 50)) * h_factor;
+            if (stitch.includes("Roman")) {
+                let panels = Math.ceil(w / (stitch.includes("48") ? 44 : 50));
+                return panels * h_factor;
+            }
+            return 0;
+        }
+
+        function ceilToHalf(val) { return Math.ceil(val * 2) / 2; }
+
+        function calculateSqft(stitch, w, h) {
+            if (stitch.includes("Roman") || stitch.includes("Blinds")) {
+                return ceilToHalf(w / 12) * ceilToHalf(h / 12);
+            }
             return 0;
         }
 
@@ -126,43 +172,88 @@
             return Math.ceil((w / 12) * 2) / 2;
         }
 
+        function calculatePanels(stitch, w) {
+            if (stitch === "Pleated") return Math.round(w / 18);
+            if (stitch === "Ripple") return Math.round(w / 20);
+            if (stitch === "Eyelet") return Math.round(w / 24);
+            return 0;
+        }
+
+        // --- UI Operations ---
+        function renderTable() {
+            const tbody = document.querySelector('#windowTable tbody');
+            let mtrs = 0, sqft = 0, track = 0, panels = 0;
+            
+            tbody.innerHTML = entries.map((e, i) => {
+                mtrs += parseFloat(e.Quantity || 0);
+                sqft += parseFloat(e.SQFT || 0);
+                track += parseFloat(e["Track (ft)"] || 0);
+                panels += parseInt(e.Panels || 0);
+                
+                const hasImgs = (e.Images && e.Images.length > 0) || (e.files && e.files.length > 0);
+
+                return `
+                <tr>
+                    <td class="px-2">
+                        <small class="d-block fw-bold">${e.Window}</small>
+                        <small class="text-muted">${e["Stitch Type"]}</small>
+                    </td>
+                    <td class="px-2"><b>${parseFloat(e.Quantity || 0).toFixed(1)}</b></td>
+                    <td class="px-2">${e.SQFT > 0 ? e.SQFT.toFixed(1) + 'sq' : e["Track (ft)"] + 'ft'}</td>
+                    <td class="text-center">
+                        <div class="btn-group">
+                            ${hasImgs ? `<button class="btn btn-info btn-sm" onclick="viewImages(${i})">👁️</button>` : ''}
+                            <button class="btn btn-warning btn-sm" onclick="editWindow(${i})">Edit</button>
+                            <button class="btn btn-danger btn-sm" onclick="entries.splice(${i},1);renderTable()">X</button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('totalMtrs').innerText = mtrs.toFixed(2);
+            document.getElementById('totalSqft').innerText = sqft.toFixed(2);
+            document.getElementById('totalTrack').innerText = track.toFixed(1);
+            document.getElementById('totalPanels').innerText = panels;
+        }
+
         function resetWindowForm() {
             document.getElementById('winName').value = "";
+            document.getElementById('winDesc').value = "";
             document.getElementById('width').value = 0;
             document.getElementById('height').value = 0;
-            document.getElementById('isDouble').checked = false;
             document.getElementById('winImage').value = "";
+            document.getElementById('isDouble').checked = false;
             editingIndex = null;
             document.getElementById('submitBtn').innerText = "Add to Table";
-            document.getElementById('formHeader').innerText = "2. Add Window";
             document.getElementById('windowCard').classList.remove('edit-highlight');
         }
 
         function addOrUpdateWindow() {
-            const name = document.getElementById('winName').value;
             const stitch = document.getElementById('stitch').value;
-            const lining = document.getElementById('lining').value;
             const w = parseFloat(document.getElementById('width').value);
             const h = parseFloat(document.getElementById('height').value);
-            const isDouble = document.getElementById('isDouble').checked;
             const fileInput = document.getElementById('winImage');
 
-            const qty = calculateQty(stitch, w, h);
-            const track = calculateTrack(stitch, w);
-
-            const entry = { 
-                "Window": name, "Stitch Type": stitch, "Lining": lining,
-                "Width (inches)": w, "Height (inches)": h, "Quantity": qty, 
-                "Track (ft)": track, "file": fileInput.files[0] || null 
+            const entry = {
+                Window: document.getElementById('winName').value,
+                Description: document.getElementById('winDesc').value,
+                "Stitch Type": stitch,
+                Lining: document.getElementById('lining').value,
+                "Width (inches)": w,
+                "Height (inches)": h,
+                Quantity: calculateQty(stitch, w, h),
+                "Track (ft)": calculateTrack(stitch, w),
+                SQFT: calculateSqft(stitch, w, h),
+                Panels: calculatePanels(stitch, w),
+                files: Array.from(fileInput.files)
             };
 
             if (editingIndex !== null) {
                 entries[editingIndex] = entry;
-                alert("Window Updated");
             } else {
-                if (isDouble) {
-                    entries.push({ ...entry, "Window": name + " - Layer 1" });
-                    entries.push({ ...entry, "Window": name + " - Layer 2", "file": null });
+                if (document.getElementById('isDouble').checked) {
+                    entries.push({ ...entry, Window: entry.Window + " - Layer 1" });
+                    entries.push({ ...entry, Window: entry.Window + " - Layer 2", files: [] });
                 } else {
                     entries.push(entry);
                 }
@@ -174,33 +265,33 @@
         function editWindow(idx) {
             editingIndex = idx;
             const e = entries[idx];
-            document.getElementById('winName').value = e.Window || e.name || "";
-            document.getElementById('stitch').value = e["Stitch Type"] || e.stitch || "Pleated";
-            document.getElementById('width').value = e["Width (inches)"] || e.width || 0;
-            document.getElementById('height').value = e["Height (inches)"] || e.height || 0;
-            document.getElementById('lining').value = e.Lining || "No Lining";
-            
+            document.getElementById('winName').value = e.Window;
+            document.getElementById('winDesc').value = e.Description || "";
+            document.getElementById('stitch').value = e["Stitch Type"];
+            document.getElementById('width').value = e["Width (inches)"];
+            document.getElementById('height').value = e["Height (inches)"];
             document.getElementById('submitBtn').innerText = "Update Window";
-            document.getElementById('formHeader').innerText = "Editing Window...";
             document.getElementById('windowCard').classList.add('edit-highlight');
-            window.scrollTo(0, document.getElementById('windowCard').offsetTop - 100);
+            window.scrollTo(0, 0);
         }
 
-        function renderTable() {
-            const tbody = document.querySelector('#windowTable tbody');
-            tbody.innerHTML = entries.map((e, i) => `
-                <tr>
-                    <td>${e.Window || e.name}</td><td>${e["Stitch Type"] || e.stitch}</td>
-                    <td>${e["Width (inches)"] || e.width}"x${e["Height (inches)"] || e.height}"</td>
-                    <td><b>${parseFloat(e.Quantity || 0).toFixed(2)}</b></td>
-                    <td>${e["Track (ft)"] || 0} ft</td>
-                    <td>${((e.Images && e.Images.length > 0) || e.file) ? `<button class="btn btn-sm btn-info" onclick="viewImages(${i})">View</button>` : '-'}</td>
-                    <td>
-                        <button class="btn btn-warning btn-sm" onclick="editWindow(${i})">Edit</button>
-                        <button class="btn btn-danger btn-sm" onclick="entries.splice(${i},1);renderTable()">Delete</button>
-                    </td>
-                </tr>
-            `).join('');
+        function viewImages(idx) {
+            const entry = entries[idx];
+            const container = document.getElementById('modalImageContainer');
+            container.innerHTML = "";
+            if (entry.files) {
+                entry.files.forEach(f => {
+                    const r = new FileReader();
+                    r.onload = (ev) => container.innerHTML += `<img src="${ev.target.result}" class="img-fluid mb-2 rounded shadow-sm">`;
+                    r.readAsDataURL(f);
+                });
+            }
+            if (entry.Images) {
+                entry.Images.forEach(ref => {
+                    container.innerHTML += `<img src="/api/image/${ref.replace('gridfs:','')}" class="img-fluid mb-2 rounded shadow-sm">`;
+                });
+            }
+            new bootstrap.Modal(document.getElementById('imageModal')).show();
         }
 
         async function searchCustomer() {
@@ -208,7 +299,7 @@
             lastSearchResults = await res.json();
             document.getElementById('searchResults').innerHTML = lastSearchResults.map((r, i) => `
                 <button class="list-group-item list-group-item-action" onclick="selectCust(${i})">
-                    <strong>${r.name}</strong> (${r.phone}) - Branch: ${r.showroom || 'N/A'}
+                    <strong>${r.name}</strong> (${r.phone})
                 </button>
             `).join('');
         }
@@ -225,46 +316,30 @@
             document.getElementById('searchResults').innerHTML = "";
         }
 
-        function viewImages(idx) {
-            const entry = entries[idx];
-            const container = document.getElementById('modalImageContainer');
-            container.innerHTML = "";
-            if (entry.file) {
-                const reader = new FileReader();
-                reader.onload = (e) => container.innerHTML += `<img src="${e.target.result}" class="img-fluid mb-2 border rounded">`;
-                reader.readAsDataURL(entry.file);
-            }
-            (entry.Images || []).forEach(ref => {
-                container.innerHTML += `<img src="/api/image/${ref.replace("gridfs:", "")}" class="img-fluid mb-2 border rounded">`;
-            });
-            new bootstrap.Modal(document.getElementById('imageModal')).show();
-        }
-
         async function saveFullOrder() {
-            const formData = new FormData();
-            formData.append('customer_id', currentCustomerId);
-            formData.append('name', document.getElementById('custName').value);
-            formData.append('phone', document.getElementById('custPhone').value);
-            formData.append('address', document.getElementById('custAddr').value);
-            formData.append('showroom', document.getElementById('showroom').value);
+            const fData = new FormData();
+            fData.append('customer_id', currentCustomerId);
+            fData.append('name', document.getElementById('custName').value);
+            fData.append('phone', document.getElementById('custPhone').value);
+            fData.append('address', document.getElementById('custAddr').value);
+            fData.append('showroom', document.getElementById('showroom').value);
             
-            const cleanEntries = entries.map((e, i) => {
-                if (e.file) formData.append(`images_${i}`, e.file);
-                const { file, ...rest } = e;
+            const clean = entries.map((e, i) => {
+                if (e.files) e.files.forEach(f => fData.append(`images_${i}`, f));
+                const { files, ...rest } = e;
                 return rest;
             });
-            formData.append('entries', JSON.stringify(cleanEntries));
+            fData.append('entries', JSON.stringify(clean));
 
-            await fetch('/api/orders', { method: 'POST', body: formData });
-            
-            const customer = { name: document.getElementById('custName').value, phone: document.getElementById('custPhone').value, showroom: document.getElementById('showroom').value };
+            await fetch('/api/orders', { method: 'POST', body: fData });
+            const customer = { name: document.getElementById('custName').value, phone: document.getElementById('custPhone').value };
             const pdfRes = await fetch('/api/download-pdf', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ customer, entries }) });
             const blob = await pdfRes.blob();
             const link = document.createElement('a');
             link.href = window.URL.createObjectURL(blob);
             link.download = `Order_${customer.name}.pdf`;
             link.click();
-            alert("Order Saved & PDF Downloaded!");
+            alert("Saved!");
         }
     </script>
 </body>

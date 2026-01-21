@@ -14,7 +14,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 
 app = Flask(__name__)
-app.secret_key = "quilt_drapes_secure_key"  # Required for sessions
+app.secret_key = "quilt_drapes_secure_key"
 
 # Configuration
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://kunal-qd:Password_5202@cluster0.zem6dyp.mongodb.net/?appName=Cluster0")
@@ -22,7 +22,6 @@ client = MongoClient(MONGO_URI)
 db = client["fabric_app"]
 fs = GridFS(db)
 
-# --- Authentication Wrapper ---
 def is_logged_in():
     return session.get('logged_in')
 
@@ -54,8 +53,8 @@ def get_image(fid):
             fid = fid.replace("gridfs:", "")
         file_data = fs.get(ObjectId(fid))
         return send_file(io.BytesIO(file_data.read()), mimetype=file_data.content_type or 'image/jpeg')
-    except Exception as e:
-        return str(e), 404
+    except Exception:
+        return "Not Found", 404
 
 @app.route('/api/customers/search', methods=['GET'])
 def search_customers():
@@ -99,13 +98,13 @@ def save_order():
     processed_entries = []
 
     for i, entry in enumerate(entries):
-        image_refs = []
+        image_refs = entry.get('Images', [])
         files = request.files.getlist(f'images_{i}')
         for f in files:
             fid = fs.put(f, filename=f.filename)
             image_refs.append(f"gridfs:{str(fid)}")
         
-        entry['Images'] = entry.get('Images', []) + image_refs
+        entry['Images'] = image_refs
         processed_entries.append(entry)
 
     db.orders.insert_one({
@@ -126,23 +125,25 @@ def download_pdf():
     buffer = io.BytesIO()
     pdf = SimpleDocTemplate(buffer, pagesize=A4)
     styles = getSampleStyleSheet()
-    story = [Paragraph(f"<b>Quilt and Drapes - Order Form</b>", styles["Title"]), Spacer(1, 12)]
+    story = [Paragraph("<b>Quilt and Drapes - Order Form</b>", styles["Title"]), Spacer(1, 12)]
     story.append(Paragraph(f"<b>Branch:</b> {cust.get('showroom', 'N/A')}<br/><b>Name:</b> {cust['name']}<br/><b>Phone:</b> {cust['phone']}", styles["Normal"]))
     story.append(Spacer(1, 12))
 
-    table_data = [["Window", "Stitch Type", "Dim.", "Qty", "Track"]]
+    table_data = [["Window", "Description", "Stitch", "Dim.", "Qty", "Track", "SQFT"]]
     for e in entries:
         dims = f"{e.get('Width (inches)',0)}\"x{e.get('Height (inches)',0)}\""
         table_data.append([
             e.get('Window',''), 
+            e.get('Description', '-'),
             e.get('Stitch Type',''), 
             dims, 
             round(float(e.get('Quantity',0)), 2),
-            f"{e.get('Track (ft)', 0)} ft"
+            f"{e.get('Track (ft)', 0)} ft",
+            round(float(e.get('SQFT', 0)), 2) if e.get('SQFT') else "-"
         ])
     
-    t = Table(table_data, colWidths=[150, 100, 80, 50, 50])
-    t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTSIZE', (0,0), (-1,-1), 9)]))
+    t = Table(table_data, colWidths=[70, 110, 80, 60, 40, 40, 50])
+    t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTSIZE', (0,0), (-1,-1), 8)]))
     story.append(t)
     pdf.build(story)
     buffer.seek(0)
