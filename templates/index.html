@@ -1,346 +1,368 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quilt and Drapes Calculator</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { font-size: 14px; }
-        .top-bar { background: #1a1a1a; color: white; padding: 0.8rem 0; margin-bottom: 1.5rem; }
-        .section-header { border-bottom: 2px solid #dee2e6; margin-bottom: 1rem; padding-bottom: 0.5rem; font-weight: bold; }
-        .edit-highlight { border: 2px solid #ffc107 !important; background-color: #fffdf5; }
-        .summary-card { background: #f8f9fa; border: 1px solid #333; border-radius: 8px; text-align: center; padding: 10px; }
-    </style>
+<meta charset="UTF-8">
+<title>Order – Quilt & Drapes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+body { background:#f4f7f6; font-size:14px; }
+.container-max { max-width:1100px; margin:auto; }
+
+.top-bar {
+  background:#1a1a1a; color:#fff; padding:.75rem 1rem;
+}
+
+.card { border-radius:14px; }
+.section-header {
+  font-weight:600; border-bottom:1px solid #dee2e6; padding-bottom:.4rem;
+}
+
+.table thead th { white-space:nowrap; }
+</style>
 </head>
-<body class="bg-light">
-    <div class="top-bar shadow-sm sticky-top">
-        <div class="container d-flex justify-content-between align-items-center px-3">
-            <h5 class="m-0">Quilt and Drapes</h5>
-            <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
-        </div>
+
+<body>
+
+<div class="top-bar d-flex justify-content-between align-items-center">
+  <div class="d-flex gap-2 align-items-center">
+    <a href="/dashboard" class="btn btn-outline-light btn-sm">← Dashboard</a>
+    <strong id="pageTitle">New Order</strong>
+  </div>
+  <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+</div>
+
+<div class="container-max px-3 my-4">
+
+<!-- CUSTOMER -->
+<div class="card shadow-sm mb-3">
+<div class="card-body">
+<h6 class="section-header mb-3">Customer Details</h6>
+
+<div class="row g-3">
+  <div class="col-md-3">
+    <label class="form-label">Branch</label>
+    <select id="showroom" class="form-select">
+      <option>Anna Nagar</option>
+      <option>Valasaravakkam</option>
+    </select>
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Name</label>
+    <input id="custName" class="form-control">
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Phone</label>
+    <input id="custPhone" class="form-control">
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Address</label>
+    <input id="custAddr" class="form-control">
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Status</label>
+    <select id="orderStatus" class="form-select">
+      <option>Pending</option>
+      <option>Cutting</option>
+      <option>Stitching</option>
+      <option>Completed</option>
+    </select>
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Due Date</label>
+    <input type="date" id="dueDate" class="form-control">
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ADD WINDOW -->
+<div class="card shadow-sm mb-3">
+<div class="card-body">
+<h6 class="section-header mb-3">Add Window</h6>
+
+<div class="row g-3">
+  <div class="col-md-6">
+    <label class="form-label">Window Name</label>
+    <input id="winName" class="form-control">
+  </div>
+
+  <div class="col-md-6">
+    <label class="form-label">Description</label>
+    <input id="winDesc" class="form-control">
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label">Stitch</label>
+    <select id="stitch" class="form-select">
+      <option>Pleated</option>
+      <option>Ripple</option>
+      <option>Eyelet</option>
+      <option>Roman Blinds 48"</option>
+      <option>Roman Blinds 54"</option>
+      <option>Blinds (Regular)</option>
+    </select>
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label">Lining</label>
+    <select id="lining" class="form-select">
+      <option>No Lining</option>
+      <option>Normal Lining</option>
+      <option>B/O Lining</option>
+    </select>
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">Width (in)</label>
+    <input id="width" type="number" class="form-control">
+  </div>
+
+  <div class="col-md-2">
+    <label class="form-label">Height (in)</label>
+    <input id="height" type="number" class="form-control">
+  </div>
+
+  <div class="col-12">
+    <div class="form-check form-switch mt-2">
+      <input class="form-check-input" type="checkbox" id="isDouble">
+      <label class="form-check-label">Double Layer</label>
     </div>
+  </div>
 
-    <div class="container-fluid px-3 mb-5">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h6 class="text-muted m-0">Mobile Calculator</h6>
-            <button class="btn btn-danger btn-sm" onclick="location.reload()">Reset App</button>
-        </div>
+  <div class="col-12">
+    <label class="form-label">Tailor Notes</label>
+    <textarea id="winNotes" rows="2" class="form-control"></textarea>
+  </div>
 
-        <div class="card mb-3 border-primary shadow-sm">
-            <div class="card-body p-3">
-                <h6 class="text-primary section-header">1. Search Customer</h6>
-                <div class="input-group">
-                    <input type="text" id="searchQuery" class="form-control" placeholder="Name/Phone">
-                    <button class="btn btn-primary" onclick="searchCustomer()">Search</button>
-                </div>
-                <div id="searchResults" class="list-group mt-2"></div>
-            </div>
-        </div>
+  <div class="col-12">
+  <label class="form-label">Window Images</label>
+  <input type="file" id="winImages" class="form-control" multiple>
+</div>
 
-        <div class="card mb-3 shadow-sm" id="windowCard">
-            <div class="card-body p-3">
-                <h6 class="section-header" id="formHeader">2. Add Window</h6>
-                <div class="row">
-                    <div class="col-12 col-md-4">
-                        <label>Window Name</label>
-                        <input type="text" id="winName" class="form-control">
-                    </div>
-                    <div class="col-12 col-md-4">
-                        <label>Description</label>
-                        <input type="text" id="winDesc" class="form-control" placeholder="e.g. Master Bedroom North">
-                    </div>
-                    <div class="col-12 col-md-4">
-                        <label>Stitch Type</label>
-                        <select id="stitch" class="form-select">
-                            <option>Pleated</option><option>Ripple</option><option>Eyelet</option>
-                            <option>Roman Blinds 48"</option><option>Roman Blinds 54"</option>
-                            <option>Blinds (Regular)</option>
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-4 mt-2">
-                        <label>Lining</label>
-                        <select id="lining" class="form-select">
-                            <option>No Lining</option><option>Normal Lining</option><option>100% Blackout</option>
-                        </select>
-                    </div>
-                    <div class="col-6 mt-2">
-                        <label>Width (in)</label>
-                        <input type="number" id="width" class="form-control" value="0">
-                    </div>
-                    <div class="col-6 mt-2">
-                        <label>Height (in)</label>
-                        <input type="number" id="height" class="form-control" value="0">
-                    </div>
-                    <div class="col-12 mt-3">
-                        <label>Images (Multiple)</label>
-                        <input type="file" id="winImage" class="form-control" accept="image/*" multiple>
-                    </div>
-                    <div class="col-12 mt-3">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="isDouble">
-                            <label class="form-check-label" for="isDouble">Double Layer?</label>
-                        </div>
-                    </div>
-                </div>
-                <div class="row g-2 mt-2">
-                    <div class="col-8">
-                        <button class="btn btn-success w-100" id="submitBtn" onclick="addOrUpdateWindow()">Add to Table</button>
-                    </div>
-                    <div class="col-4">
-                        <button class="btn btn-outline-secondary w-100" onclick="resetWindowForm()">Clear</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+</div>
 
-        <div class="row g-2 mb-3">
-            <div class="col-6 col-md-3"><div class="summary-card"><small>Total Mtrs</small><div id="totalMtrs" class="fw-bold">0.00</div></div></div>
-            <div class="col-6 col-md-3"><div class="summary-card"><small>Total SQFT</small><div id="totalSqft" class="fw-bold">0.00</div></div></div>
-            <div class="col-6 col-md-3"><div class="summary-card"><small>Track (Ft)</small><div id="totalTrack" class="fw-bold">0.0</div></div></div>
-            <div class="col-6 col-md-3"><div class="summary-card"><small>Panels</small><div id="totalPanels" class="fw-bold">0</div></div></div>
-        </div>
+<div class="row g-2 mt-4">
+  <div class="col-md-6">
+    <button class="btn btn-success w-100" onclick="addOrUpdateWindow()">Add / Update Window</button>
+  </div>
+  <div class="col-md-6">
+    <button class="btn btn-outline-secondary w-100" onclick="resetForm()">Clear</button>
+  </div>
+</div>
 
-        <div class="table-responsive bg-white rounded shadow-sm mb-3">
-            <table class="table table-sm table-bordered mb-0" id="windowTable">
-                <thead class="table-dark">
-                    <tr><th>Window</th><th>Qty</th><th>Track/SQFT</th><th>Action</th></tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
+</div>
+</div>
 
-        <div class="card p-3 bg-white shadow-sm border-0">
-            <h6 class="section-header">3. Customer Details</h6>
-            <div class="row g-2">
-                <div class="col-12">
-                    <label>Branch</label>
-                    <select id="showroom" class="form-select">
-                        <option value="">Select Branch</option>
-                        <option value="Anna Nagar">Anna Nagar</option>
-                        <option value="Valasaravakkam">Valasaravakkam</option>
-                    </select>
-                </div>
-                <div class="col-12"><label>Name</label><input type="text" id="custName" class="form-control"></div>
-                <div class="col-12"><label>Phone</label><input type="tel" id="custPhone" class="form-control"></div>
-                <div class="col-12"><label>Address</label><textarea id="custAddr" class="form-control" rows="2"></textarea></div>
-            </div>
-            <button class="btn btn-dark w-100 mt-4 py-3 shadow" onclick="saveFullOrder()">SAVE & DOWNLOAD PDF</button>
+<!-- TABLE -->
+<div class="card shadow-sm mb-3">
+<div class="table-responsive">
+<table class="table table-sm table-bordered mb-0" id="windowTable">
+<thead class="table-dark">
+<tr>
+  <th>Window</th>
+  <th>Qty</th>
+  <th>Panels</th>
+  <th>Track / SQFT</th>
+  <th>Width</th>
+  <th>Height</th>
+  <th>Action</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+</div>
+
+<button class="btn btn-dark w-100 py-3" onclick="saveOrder()">SAVE ORDER</button>
+
+<button class="btn btn-outline-primary w-100 py-2 mt-2"
+  onclick="window.open(`/api/orders/${currentOrderId}/pdf`, `_blank`)">
+  PRINT ORDER
+</button>
+
+</div>
+<div class="modal fade" id="imageModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Window Images</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="imageCarousel" class="carousel slide">
+          <div class="carousel-inner" id="carouselInner"></div>
+          <button class="carousel-control-prev" data-bs-target="#imageCarousel" data-bs-slide="prev">
+            <span class="carousel-control-prev-icon"></span>
+          </button>
+          <button class="carousel-control-next" data-bs-target="#imageCarousel" data-bs-slide="next">
+            <span class="carousel-control-next-icon"></span>
+          </button>
         </div>
+      </div>
     </div>
+  </div>
+</div>
 
-    <div class="modal fade" id="imageModal" tabindex="-1">
-        <div class="modal-dialog modal-fullscreen-sm-down">
-            <div class="modal-content">
-                <div class="modal-header"><h5>Window Images</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
-                <div class="modal-body text-center" id="modalImageContainer"></div>
-            </div>
-        </div>
+<script>
+let entries=[], editIndex=null, isEditMode=false, currentOrderId=null;
+
+/* ---------- CALC ---------- */
+function calcPanels(s,w){
+  if(s==="Pleated") return Math.round(w/18);
+  if(s==="Ripple") return Math.round(w/20);
+  if(s==="Eyelet") return Math.round(w/24);
+  return 1;
+}
+function calcQty(s,w,h){
+  let hf=(h+14)/39;
+  return Number((calcPanels(s,w)*hf).toFixed(2));
+}
+function calcSqft(s,w,h){
+  if(s.includes("Roman")||s.includes("Blinds"))
+    return Number(((Math.ceil(w/12*2)/2)*(Math.ceil(h/12*2)/2)).toFixed(2));
+  return 0;
+}
+function calcTrack(s,w){
+  if(s.includes("Roman")||s.includes("Blinds")) return 0;
+  return Math.ceil((w/12)*2)/2;
+}
+
+/* ---------- LOAD ORDER ---------- */
+document.addEventListener("DOMContentLoaded",async()=>{
+  const p=new URLSearchParams(location.search);
+  if(p.has("order_id")){
+    currentOrderId=p.get("order_id");
+    isEditMode=true;
+    pageTitle.innerText="Edit Order";
+    const o=await fetch(`/api/orders/${currentOrderId}`).then(r=>r.json());
+    showroom.value=o.showroom;
+    custName.value=o.name;
+    custPhone.value=o.phone;
+    custAddr.value=o.address;
+    orderStatus.value=o.status;
+    dueDate.value=o.due_date||"";
+    entries=o.entries||[];
+    render();
+  }
+});
+
+/* ---------- ADD / UPDATE ---------- */
+function addOrUpdateWindow(){
+  const w=Number(width.value)||0;
+  const h=Number(height.value)||0;
+  const s=stitch.value;
+
+  const baseEntry={
+    Stitch: s,
+    Lining: lining.value,
+    Width: w,
+    Height: h,
+    Panels: calcPanels(s,w),
+    Quantity: calcQty(s,w,h),
+    Track: calcTrack(s,w),
+    SQFT: calcSqft(s,w,h),
+    Notes: winNotes.value,
+    Images: [...winImages.files]
+  };
+
+  if(editIndex!==null){
+    entries.splice(editIndex,1);
+    editIndex=null;
+  }
+
+  if(isDouble.checked){
+    entries.push({ Window: winName.value+" - Layer 1", ...baseEntry });
+    entries.push({ Window: winName.value+" - Layer 2", ...baseEntry });
+  } else {
+    entries.push({ Window: winName.value, ...baseEntry });
+  }
+
+  render();
+  resetForm();
+}
+
+/* ---------- EDIT ---------- */
+function edit(i){
+  editIndex=i;
+  const e=entries[i];
+  winName.value=e.Window;
+  stitch.value=e.Stitch;
+  lining.value=e.Lining;
+  width.value=e.Width;
+  height.value=e.Height;
+  winNotes.value=e.Notes||"";
+}
+
+/* ---------- RENDER ---------- */
+function render(){
+  const tbody=windowTable.querySelector("tbody");
+  tbody.innerHTML="";
+
+  entries.forEach((e,i)=>{
+    const trackOrSqft =
+      e.Track && e.Track>0 ? `${e.Track} ft` : `${e.SQFT} sqft`;
+
+    tbody.innerHTML+=`
+    <tr>
+      <td>${e.Window}</td>
+      <td><strong>${e.Quantity.toFixed(2)}</strong></td>
+      <td>${e.Panels}</td>
+      <td>${trackOrSqft}</td>
+      <td>${e.Width}</td>
+      <td>${e.Height}</td>
+      <td>
+        ${e.Images && e.Images.length? `<button class="btn btn-info btn-sm me-1" onclick="viewImages(${i})">Images</button>`: ""}
+        <button class="btn btn-warning btn-sm" onclick="edit(${i})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="entries.splice(${i},1);render()">X</button>
+      </td>
+    </tr>`;
+  });
+}
+
+/* ---------- RESET ---------- */
+function resetForm(){
+  winName.value=winDesc.value=winNotes.value="";
+  width.value=height.value=0;
+  lining.value="No Lining";
+}
+
+/* ---------- SAVE ---------- */
+async function saveOrder(){
+  const fd=new FormData();
+  fd.append("name",custName.value);
+  fd.append("phone",custPhone.value);
+  fd.append("address",custAddr.value);
+  fd.append("showroom",showroom.value);
+  fd.append("status",orderStatus.value);
+  fd.append("due_date",dueDate.value);
+  fd.append("entries",JSON.stringify(entries));
+  await fetch(isEditMode?`/api/orders/${currentOrderId}`:"/api/orders",{
+    method:isEditMode?"PUT":"POST",
+    body:fd
+  });
+  location.href="/dashboard";
+}
+function viewImages(index) {
+  const imgs = entries[index].Images || [];
+  const carousel = document.getElementById("carouselInner");
+
+  carousel.innerHTML = imgs.map((img, i) => `
+    <div class="carousel-item ${i === 0 ? "active" : ""}">
+      <img src="${URL.createObjectURL(img)}" class="d-block w-100 rounded">
     </div>
+  `).join("");
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        let entries = [];
-        let currentCustomerId = null;
-        let lastSearchResults = [];
-        let editingIndex = null;
-
-        // --- Calculation Logic ---
-        function calculateQty(stitch, w, h) {
-            const h_factor = Math.round(((h + 14) / 39) * 100) / 100;
-            if (stitch === "Pleated") return (Math.round(w / 18) * h_factor);
-            if (stitch === "Ripple") return (Math.round(w / 20) * h_factor);
-            if (stitch === "Eyelet") return (Math.round(w / 24) * h_factor);
-            if (stitch.includes("Roman")) {
-                let panels = Math.ceil(w / (stitch.includes("48") ? 44 : 50));
-                return panels * h_factor;
-            }
-            return 0;
-        }
-
-        function ceilToHalf(val) { return Math.ceil(val * 2) / 2; }
-
-        function calculateSqft(stitch, w, h) {
-            if (stitch.includes("Roman") || stitch.includes("Blinds")) {
-                return ceilToHalf(w / 12) * ceilToHalf(h / 12);
-            }
-            return 0;
-        }
-
-        function calculateTrack(stitch, w) {
-            if (stitch.includes("Roman") || stitch.includes("Blinds")) return 0;
-            return Math.ceil((w / 12) * 2) / 2;
-        }
-
-        function calculatePanels(stitch, w) {
-            if (stitch === "Pleated") return Math.round(w / 18);
-            if (stitch === "Ripple") return Math.round(w / 20);
-            if (stitch === "Eyelet") return Math.round(w / 24);
-            return 0;
-        }
-
-        // --- UI Operations ---
-        function renderTable() {
-            const tbody = document.querySelector('#windowTable tbody');
-            let mtrs = 0, sqft = 0, track = 0, panels = 0;
-            
-            tbody.innerHTML = entries.map((e, i) => {
-                mtrs += parseFloat(e.Quantity || 0);
-                sqft += parseFloat(e.SQFT || 0);
-                track += parseFloat(e["Track (ft)"] || 0);
-                panels += parseInt(e.Panels || 0);
-                
-                const hasImgs = (e.Images && e.Images.length > 0) || (e.files && e.files.length > 0);
-
-                return `
-                <tr>
-                    <td class="px-2">
-                        <small class="d-block fw-bold">${e.Window}</small>
-                        <small class="text-muted">${e["Stitch Type"]}</small>
-                    </td>
-                    <td class="px-2"><b>${parseFloat(e.Quantity || 0).toFixed(1)}</b></td>
-                    <td class="px-2">${e.SQFT > 0 ? e.SQFT.toFixed(1) + 'sq' : e["Track (ft)"] + 'ft'}</td>
-                    <td class="text-center">
-                        <div class="btn-group">
-                            ${hasImgs ? `<button class="btn btn-info btn-sm" onclick="viewImages(${i})">👁️</button>` : ''}
-                            <button class="btn btn-warning btn-sm" onclick="editWindow(${i})">Edit</button>
-                            <button class="btn btn-danger btn-sm" onclick="entries.splice(${i},1);renderTable()">X</button>
-                        </div>
-                    </td>
-                </tr>`;
-            }).join('');
-
-            document.getElementById('totalMtrs').innerText = mtrs.toFixed(2);
-            document.getElementById('totalSqft').innerText = sqft.toFixed(2);
-            document.getElementById('totalTrack').innerText = track.toFixed(1);
-            document.getElementById('totalPanels').innerText = panels;
-        }
-
-        function resetWindowForm() {
-            document.getElementById('winName').value = "";
-            document.getElementById('winDesc').value = "";
-            document.getElementById('width').value = 0;
-            document.getElementById('height').value = 0;
-            document.getElementById('winImage').value = "";
-            document.getElementById('isDouble').checked = false;
-            editingIndex = null;
-            document.getElementById('submitBtn').innerText = "Add to Table";
-            document.getElementById('windowCard').classList.remove('edit-highlight');
-        }
-
-        function addOrUpdateWindow() {
-            const stitch = document.getElementById('stitch').value;
-            const w = parseFloat(document.getElementById('width').value);
-            const h = parseFloat(document.getElementById('height').value);
-            const fileInput = document.getElementById('winImage');
-
-            const entry = {
-                Window: document.getElementById('winName').value,
-                Description: document.getElementById('winDesc').value,
-                "Stitch Type": stitch,
-                Lining: document.getElementById('lining').value,
-                "Width (inches)": w,
-                "Height (inches)": h,
-                Quantity: calculateQty(stitch, w, h),
-                "Track (ft)": calculateTrack(stitch, w),
-                SQFT: calculateSqft(stitch, w, h),
-                Panels: calculatePanels(stitch, w),
-                files: Array.from(fileInput.files)
-            };
-
-            if (editingIndex !== null) {
-                entries[editingIndex] = entry;
-            } else {
-                if (document.getElementById('isDouble').checked) {
-                    entries.push({ ...entry, Window: entry.Window + " - Layer 1" });
-                    entries.push({ ...entry, Window: entry.Window + " - Layer 2", files: [] });
-                } else {
-                    entries.push(entry);
-                }
-            }
-            renderTable();
-            resetWindowForm();
-        }
-
-        function editWindow(idx) {
-            editingIndex = idx;
-            const e = entries[idx];
-            document.getElementById('winName').value = e.Window;
-            document.getElementById('winDesc').value = e.Description || "";
-            document.getElementById('stitch').value = e["Stitch Type"];
-            document.getElementById('width').value = e["Width (inches)"];
-            document.getElementById('height').value = e["Height (inches)"];
-            document.getElementById('submitBtn').innerText = "Update Window";
-            document.getElementById('windowCard').classList.add('edit-highlight');
-            window.scrollTo(0, 0);
-        }
-
-        function viewImages(idx) {
-            const entry = entries[idx];
-            const container = document.getElementById('modalImageContainer');
-            container.innerHTML = "";
-            if (entry.files) {
-                entry.files.forEach(f => {
-                    const r = new FileReader();
-                    r.onload = (ev) => container.innerHTML += `<img src="${ev.target.result}" class="img-fluid mb-2 rounded shadow-sm">`;
-                    r.readAsDataURL(f);
-                });
-            }
-            if (entry.Images) {
-                entry.Images.forEach(ref => {
-                    container.innerHTML += `<img src="/api/image/${ref.replace('gridfs:','')}" class="img-fluid mb-2 rounded shadow-sm">`;
-                });
-            }
-            new bootstrap.Modal(document.getElementById('imageModal')).show();
-        }
-
-        async function searchCustomer() {
-            const res = await fetch(`/api/customers/search?term=${document.getElementById('searchQuery').value}`);
-            lastSearchResults = await res.json();
-            document.getElementById('searchResults').innerHTML = lastSearchResults.map((r, i) => `
-                <button class="list-group-item list-group-item-action" onclick="selectCust(${i})">
-                    <strong>${r.name}</strong> (${r.phone})
-                </button>
-            `).join('');
-        }
-
-        function selectCust(idx) {
-            const r = lastSearchResults[idx];
-            currentCustomerId = r.id;
-            document.getElementById('custName').value = r.name;
-            document.getElementById('custPhone').value = r.phone;
-            document.getElementById('custAddr').value = r.address;
-            document.getElementById('showroom').value = r.showroom || "";
-            entries = r.previous_entries || [];
-            renderTable();
-            document.getElementById('searchResults').innerHTML = "";
-        }
-
-        async function saveFullOrder() {
-            const fData = new FormData();
-            fData.append('customer_id', currentCustomerId);
-            fData.append('name', document.getElementById('custName').value);
-            fData.append('phone', document.getElementById('custPhone').value);
-            fData.append('address', document.getElementById('custAddr').value);
-            fData.append('showroom', document.getElementById('showroom').value);
-            
-            const clean = entries.map((e, i) => {
-                if (e.files) e.files.forEach(f => fData.append(`images_${i}`, f));
-                const { files, ...rest } = e;
-                return rest;
-            });
-            fData.append('entries', JSON.stringify(clean));
-
-            await fetch('/api/orders', { method: 'POST', body: fData });
-            const customer = { name: document.getElementById('custName').value, phone: document.getElementById('custPhone').value };
-            const pdfRes = await fetch('/api/download-pdf', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ customer, entries }) });
-            const blob = await pdfRes.blob();
-            const link = document.createElement('a');
-            link.href = window.URL.createObjectURL(blob);
-            link.download = `Order_${customer.name}.pdf`;
-            link.click();
-            alert("Saved!");
-        }
-    </script>
+  new bootstrap.Modal(document.getElementById("imageModal")).show();
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

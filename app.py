@@ -1,10 +1,6 @@
-import os
-import io
-import uuid
-import json
-import math
+import os, io, uuid, json
 from datetime import datetime
-from flask import Flask, request, jsonify, send_file, render_template, session, redirect, url_for
+from flask import Flask, request, jsonify, send_file, render_template, session, redirect
 from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 from gridfs import GridFS
@@ -13,141 +9,327 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 
+
 app = Flask(__name__)
 app.secret_key = "quilt_drapes_secure_key"
 
-# Configuration
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://kunal-qd:Password_5202@cluster0.zem6dyp.mongodb.net/?appName=Cluster0")
+MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["fabric_app"]
 fs = GridFS(db)
 
+STATUSES = ["Pending", "Cutting", "Stitching", "Completed"]
+
 def is_logged_in():
-    return session.get('logged_in')
+    return session.get("logged_in")
 
-@app.route('/login', methods=['GET', 'POST'])
+# ---------------- AUTH ----------------
+
+# ---------------- DASHBOARD KPIs ----------------
+
+@app.route("/api/dashboard/kpis")
+def dashboard_kpis():
+    if not is_logged_in(): 
+        return "Unauthorized", 401
+
+    orders = list(db.orders.find({}))
+
+    total_sqft = 0
+    total_panels = 0
+    status_count = {s: 0 for s in STATUSES}
+
+    for o in orders:
+        status = o.get("status", "Pending")
+        status_count[status] += 1
+
+        for e in o.get("entries", []):
+            total_sqft += float(e.get("SQFT", 0))
+            total_panels += int(e.get("Panels", 0))
+
+    return jsonify({
+        "orders": len(orders),
+        "sqft": round(total_sqft, 2),
+        "panels": total_panels,
+        "status": status_count
+    })
+
+
+@app.route("/api/orders/<oid>/pdf")
+def print_order_pdf(oid):
+    if not is_logged_in(): return "Unauthorized", 401
+
+    order = db.orders.find_one({"_id": oid})
+    if not order: return "Not found", 404
+
+    cust = db.customers.find_one({"_id": ObjectId(order["customer_id"])})
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30,leftMargin=30, topMargin=30,bottomMargin=30)
+    styles = getSampleStyleSheet()
+    elems = []
+
+    elems.append(Paragraph("<b>ORDER FORM</b>", styles["Title"]))
+    elems.append(Spacer(1,12))
+
+    elems.append(Paragraph(f"<b>Name:</b> {cust['name']}", styles["Normal"]))
+    elems.append(Paragraph(f"<b>Phone:</b> {cust['phone']}", styles["Normal"]))
+    elems.append(Paragraph(f"<b>Address:</b> {cust['address']}", styles["Normal"]))
+    elems.append(Paragraph(f"<b>Showroom:</b> {cust['showroom']}", styles["Normal"]))
+    elems.append(Paragraph(f"<b>Date:</b> {order['created_at'].strftime('%d-%m-%Y %H:%M')}", styles["Normal"]))
+    elems.append(Spacer(1,14))
+
+    table_data = [["Window","Stitch","Width","Height","Qty","Track(ft)","SQFT","Panels"]]
+
+    for e in order["entries"]:
+        table_data.append([
+            e.get("Window",""),
+            e.get("Stitch",""),
+            e.get("Width",""),
+            e.get("Height",""),
+            f"{e.get('Quantity',0):.2f}",
+            e.get("Track",0),
+            e.get("SQFT",0),
+            e.get("Panels","")
+        ])
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND",(0,0),(-1,0),colors.black),
+        ("TEXTCOLOR",(0,0),(-1,0),colors.white),
+        ("GRID",(0,0),(-1,-1),0.5,colors.grey),
+        ("FONT",(0,0),(-1,0),"Helvetica-Bold"),
+        ("ALIGN",(2,1),(-1,-1),"CENTER"),
+        ("BOTTOMPADDING",(0,0),(-1,0),8)
+    ]))
+
+    elems.append(table)
+    doc.build(elems)
+
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=False,
+                     download_name=f"Order_{cust['name']}.pdf",
+                     mimetype="application/pdf")
+
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        if request.form.get('username') == 'adminqd' and request.form.get('password') == 'adminQD':
-            session['logged_in'] = True
-            return redirect(url_for('index'))
-        return render_template('login.html', error="Invalid Credentials")
-    return render_template('login.html')
+    if request.method == "POST":
+        if request.form["username"] == "adminqd" and request.form["password"] == "adminQD":
+            session["logged_in"] = True
+            return redirect("/dashboard")
+        return render_template("login.html", error="Invalid credentials")
+    return render_template("login.html")
 
-@app.route('/logout')
+@app.route("/logout")
 def logout():
-    session.pop('logged_in', None)
-    return redirect(url_for('login'))
+    session.clear()
+    return redirect("/login")
 
-@app.route('/')
-def index():
-    if not is_logged_in():
-        return redirect(url_for('login'))
-    return render_template('index.html')
+# ---------------- PAGES ----------------
 
-@app.route('/api/image/<fid>')
-def get_image(fid):
+@app.route("/")
+def home():
+    return redirect("/dashboard")
+
+@app.route("/dashboard")
+def dashboard():
+    if not is_logged_in(): return redirect("/login")
+    return render_template("dashboard.html")
+
+@app.route("/calculator")
+def calculator():
+    if not is_logged_in(): return redirect("/login")
+    return render_template("index.html")
+
+# ---------------- IMAGES ----------------
+
+@app.route("/api/image/<fid>")
+def image(fid):
     if not is_logged_in(): return "Unauthorized", 401
+    if fid.startswith("gridfs:"):
+        fid = fid.replace("gridfs:", "")
     try:
-        if fid.startswith("gridfs:"):
-            fid = fid.replace("gridfs:", "")
-        file_data = fs.get(ObjectId(fid))
-        return send_file(io.BytesIO(file_data.read()), mimetype=file_data.content_type or 'image/jpeg')
-    except Exception:
-        return "Not Found", 404
+        f = fs.get(ObjectId(fid))
+        return send_file(io.BytesIO(f.read()), mimetype=f.content_type)
+    except:
+        return "Not found", 404
 
-@app.route('/api/customers/search', methods=['GET'])
-def search_customers():
-    if not is_logged_in(): return "Unauthorized", 401
-    term = request.args.get('term', '').strip()
-    query = {"$or": [{"name": {"$regex": term, "$options": "i"}}, {"phone": {"$regex": term, "$options": "i"}}]} if term else {}
-    cursor = db.customers.find(query).sort("created_at", DESCENDING).limit(10)
-    
-    results = []
-    for d in cursor:
-        cid = str(d["_id"])
-        latest_order = db.orders.find_one({"customer_id": cid}, sort=[("created_at", -1)])
-        results.append({
-            "id": cid,
-            "name": d.get("name", ""),
-            "phone": d.get("phone", ""),
-            "address": d.get("address", ""),
-            "showroom": d.get("showroom", ""),
-            "previous_entries": latest_order.get("entries", []) if latest_order else []
-        })
-    return jsonify(results)
+# ---------------- CREATE ORDER ----------------
 
-@app.route('/api/orders', methods=['POST'])
+@app.route("/api/orders", methods=["POST"])
 def save_order():
     if not is_logged_in(): return "Unauthorized", 401
-    customer_id = request.form.get('customer_id')
-    name = request.form.get('name')
-    phone = request.form.get('phone')
-    address = request.form.get('address')
-    showroom = request.form.get('showroom')
-    entries = json.loads(request.form.get('entries'))
-    
-    cust_data = {"name": name, "phone": phone, "address": address, "showroom": showroom}
-    if customer_id and customer_id not in ["null", "undefined"]:
-        db.customers.update_one({"_id": ObjectId(customer_id)}, {"$set": cust_data})
+
+    entries = json.loads(request.form["entries"])
+    cust = {
+        "name": request.form["name"],
+        "phone": request.form["phone"],
+        "address": request.form["address"],
+        "showroom": request.form["showroom"]
+    }
+
+    customer = db.customers.find_one({"phone": cust["phone"]})
+    if customer:
+        cid = str(customer["_id"])
+        db.customers.update_one({"_id": customer["_id"]}, {"$set": cust})
     else:
-        res = db.customers.insert_one({**cust_data, "created_at": datetime.utcnow()})
-        customer_id = str(res.inserted_id)
+        cid = str(db.customers.insert_one({**cust, "created_at": datetime.utcnow()}).inserted_id)
 
-    order_id = str(uuid.uuid4())
-    processed_entries = []
+    for i, e in enumerate(entries):
+        imgs = request.files.getlist(f"images_{i}")
+        refs = []
+        for img in imgs:
+            fid = fs.put(img, filename=img.filename)
+            refs.append(f"gridfs:{fid}")
+        e["Images"] = refs
 
-    for i, entry in enumerate(entries):
-        image_refs = entry.get('Images', [])
-        files = request.files.getlist(f'images_{i}')
-        for f in files:
-            fid = fs.put(f, filename=f.filename)
-            image_refs.append(f"gridfs:{str(fid)}")
-        
-        entry['Images'] = image_refs
-        processed_entries.append(entry)
-
-    db.orders.insert_one({
-        "_id": order_id,
-        "customer_id": customer_id,
+    order = {
+        "_id": str(uuid.uuid4()),
+        "customer_id": cid,
         "created_at": datetime.utcnow(),
-        "entries": processed_entries
-    })
-    return jsonify({"status": "success", "order_id": order_id})
+        "updated_at": datetime.utcnow(),
+        "status": request.form.get("status", "Pending"),
+        "due_date": request.form.get("due_date"),
+        "entries": entries
+    }
 
-@app.route('/api/download-pdf', methods=['POST'])
-def download_pdf():
+    db.orders.insert_one(order)
+    return jsonify({"status": "success"})
+
+# ---------------- LOAD ORDER (EDIT) ----------------
+
+@app.route("/api/orders/<oid>", methods=["GET"])
+def get_order(oid):
     if not is_logged_in(): return "Unauthorized", 401
-    data = request.json
-    cust = data['customer']
-    entries = data['entries']
-    
-    buffer = io.BytesIO()
-    pdf = SimpleDocTemplate(buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
-    story = [Paragraph("<b>Quilt and Drapes - Order Form</b>", styles["Title"]), Spacer(1, 12)]
-    story.append(Paragraph(f"<b>Branch:</b> {cust.get('showroom', 'N/A')}<br/><b>Name:</b> {cust['name']}<br/><b>Phone:</b> {cust['phone']}", styles["Normal"]))
-    story.append(Spacer(1, 12))
 
-    table_data = [["Window", "Description", "Stitch", "Dim.", "Qty", "Track", "SQFT"]]
-    for e in entries:
-        dims = f"{e.get('Width (inches)',0)}\"x{e.get('Height (inches)',0)}\""
-        table_data.append([
-            e.get('Window',''), 
-            e.get('Description', '-'),
-            e.get('Stitch Type',''), 
-            dims, 
-            round(float(e.get('Quantity',0)), 2),
-            f"{e.get('Track (ft)', 0)} ft",
-            round(float(e.get('SQFT', 0)), 2) if e.get('SQFT') else "-"
-        ])
-    
-    t = Table(table_data, colWidths=[70, 110, 80, 60, 40, 40, 50])
-    t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('FONTSIZE', (0,0), (-1,-1), 8)]))
-    story.append(t)
-    pdf.build(story)
-    buffer.seek(0)
-    return send_file(buffer, as_attachment=True, download_name=f"Order_{cust['name']}.pdf")
+    order = db.orders.find_one({"_id": oid})
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
 
-if __name__ == '__main__':
+    cust = db.customers.find_one({"_id": ObjectId(order["customer_id"])})
+
+    return jsonify({
+        "order_id": order["_id"],
+        "showroom": cust.get("showroom"),
+        "name": cust.get("name"),
+        "phone": cust.get("phone"),
+        "address": cust.get("address"),
+        "status": order.get("status"),
+        "due_date": order.get("due_date"),
+        "entries": order.get("entries", [])
+    })
+
+# ---------------- UPDATE ORDER ----------------
+
+@app.route("/api/orders/<oid>", methods=["PUT"])
+def update_order(oid):
+    if not is_logged_in(): return "Unauthorized", 401
+
+    order = db.orders.find_one({"_id": oid})
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
+
+    entries = json.loads(request.form["entries"])
+
+    cust = {
+        "name": request.form["name"],
+        "phone": request.form["phone"],
+        "address": request.form["address"],
+        "showroom": request.form["showroom"]
+    }
+
+    db.customers.update_one({"_id": ObjectId(order["customer_id"])}, {"$set": cust})
+
+    old_entries = order.get("entries", [])
+    for i, e in enumerate(entries):
+        preserved = old_entries[i].get("Images", []) if i < len(old_entries) else []
+        for img in request.files.getlist(f"images_{i}"):
+            fid = fs.put(img, filename=img.filename)
+            preserved.append(f"gridfs:{fid}")
+        e["Images"] = preserved
+
+    db.orders.update_one(
+        {"_id": oid},
+        {"$set": {
+            "entries": entries,
+            "status": request.form.get("status"),
+            "due_date": request.form.get("due_date"),
+            "updated_at": datetime.utcnow()
+        }}
+    )
+    return jsonify({"status": "updated"})
+
+# ---------------- DELETE ORDER ----------------
+
+@app.route("/api/orders/<oid>", methods=["DELETE"])
+def delete_order(oid):
+    if not is_logged_in(): return "Unauthorized", 401
+
+    order = db.orders.find_one({"_id": oid})
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
+
+    for e in order.get("entries", []):
+        for img in e.get("Images", []):
+            if img.startswith("gridfs:"):
+                try:
+                    fs.delete(ObjectId(img.replace("gridfs:", "")))
+                except:
+                    pass
+
+    db.orders.delete_one({"_id": oid})
+    return jsonify({"status": "deleted"})
+
+# ---------------- DASHBOARD LIST ----------------
+
+@app.route("/api/orders/list")
+def list_orders():
+    if not is_logged_in():
+        return jsonify({"error": "unauthorized"}), 401
+
+    status = request.args.get("status")
+    q = {} if status in (None, "All") else {"status": status}
+
+    out = []
+
+    for o in db.orders.find(q).sort("created_at", DESCENDING):
+
+        cust = db.customers.find_one({"_id": o.get("customer_id")})
+
+        if not cust:
+            try:
+                cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
+            except:
+                cust = None
+
+        if not cust:
+            cust = {"name": "Unknown", "phone": "-"}
+
+        sqft = 0
+        panels = 0
+
+        for e in o.get("entries") or []:
+            sqft += float(e.get("SQFT", 0) or 0)
+            panels += int(float(e.get("Panels", 0) or 0))
+
+        out.append({
+            "order_id": o["_id"],
+            "name": cust.get("name"),
+            "phone": cust.get("phone"),
+            "status": o.get("status", "Pending"),
+            "created_at": o.get("created_at"),
+            "updated_at": o.get("updated_at"),
+            "due_date": o.get("due_date"),
+
+            "item_count": len(o.get("entries") or []),
+            "panels": panels,
+            "sqft": round(sqft, 2)
+        })
+
+    return jsonify(out)
+
+
+# ---------------- RUN ----------------
+
+if __name__ == "__main__":
     app.run(debug=True, port=5000)

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard – Quilt & Drapes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+body { background:#f4f6f9; font-size:14px; }
+.container-max { max-width:1200px; margin:auto; }
+
+.navbar { background:#1f2933; }
+
+/* ---------- KPI CARDS ---------- */
+.kpi-card {
+  border-radius:18px;
+  padding:18px;
+  color:#fff;
+  box-shadow:0 6px 18px rgba(0,0,0,.12);
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.kpi-card:hover {
+  transform: translateY(-4px);
+  box-shadow:0 10px 26px rgba(0,0,0,.18);
+}
+
+.kpi-title { font-size:13px; opacity:.9 }
+.kpi-value { font-size:26px; font-weight:700 }
+
+/* Semantic KPI Colors */
+.kpi-orders {
+  background: linear-gradient(135deg,#2563EB,#1D4ED8);
+}
+.kpi-sqft {
+  background: linear-gradient(135deg,#059669,#047857);
+}
+.kpi-panels {
+  background: linear-gradient(135deg,#7C3AED,#6D28D9);
+}
+
+.kpi-pending {
+  background: linear-gradient(135deg,#D97706,#B45309);
+}
+.kpi-cutting {
+  background: linear-gradient(135deg,#0891B2,#0E7490);
+}
+.kpi-stitching {
+  background: linear-gradient(135deg,#4F46E5,#4338CA);
+}
+.kpi-completed {
+  background: linear-gradient(135deg,#1F2933,#111827);
+}
+
+/* ---------- ORDER CARDS ---------- */
+.order-card {
+  border-radius:16px;
+  padding:16px;
+  background:#fff;
+  box-shadow:0 4px 14px rgba(0,0,0,.06);
+  border-left:6px solid #cbd5e1;
+}
+
+.order-pending { border-color:#D97706; }
+.order-cutting { border-color:#0891B2; }
+.order-stitching { border-color:#4F46E5; }
+.order-completed { border-color:#1F2933; }
+
+.order-overdue {
+  border-color:#dc2626;
+  background:#fff5f5;
+}
+
+/* ---------- BADGES ---------- */
+.badge-soft {
+  background:#e5e7eb;
+  color:#111827;
+}
+.badge-future { background:#e0f2fe; color:#075985; }
+.badge-today { background:#fef3c7; color:#92400e; }
+.badge-overdue { background:#fee2e2; color:#991b1b; }
+
+/* ---------- FAB ---------- */
+.fab {
+  position:fixed;
+  right:20px;
+  bottom:20px;
+  width:56px;
+  height:56px;
+  border-radius:50%;
+  background:#2563eb;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:28px;
+  text-decoration:none;
+  box-shadow:0 8px 20px rgba(0,0,0,.25);
+}
+</style>
+</head>
+
+<body>
+
+<nav class="navbar navbar-dark px-4">
+  <span class="navbar-brand">Quilt & Drapes</span>
+  <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+</nav>
+
+<div class="container-max px-3 mt-4">
+
+<!-- KPI -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-2">
+    <div class="kpi-card kpi-orders">
+      <div class="kpi-title">Orders</div>
+      <div id="kpiOrders" class="kpi-value">0</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-2">
+    <div class="kpi-card kpi-sqft">
+      <div class="kpi-title">SQFT</div>
+      <div id="kpiSqft" class="kpi-value">0</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-2">
+  <div class="kpi-card kpi-panels">
+    <div class="kpi-title">Panels</div>
+    <div id="kpiPanels" class="kpi-value">0</div>
+  </div>
+</div>
+
+
+  <div class="col-6 col-md-2">
+    <div class="kpi-card kpi-pending">
+      <div class="kpi-title">Pending</div>
+      <div id="kpiPending" class="kpi-value">0</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-2">
+    <div class="kpi-card kpi-cutting">
+      <div class="kpi-title">Cutting</div>
+      <div id="kpiCutting" class="kpi-value">0</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-2">
+    <div class="kpi-card kpi-stitching">
+      <div class="kpi-title">Stitching</div>
+      <div id="kpiStitching" class="kpi-value">0</div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-2">
+    <div class="kpi-card kpi-completed">
+      <div class="kpi-title">Completed</div>
+      <div id="kpiCompleted" class="kpi-value">0</div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between mb-3">
+  <h5 class="fw-bold">Orders</h5>
+  <select id="statusFilter" class="form-select w-auto" onchange="loadOrders()">
+    <option>All</option>
+    <option>Pending</option>
+    <option>Cutting</option>
+    <option>Stitching</option>
+    <option>Completed</option>
+  </select>
+</div>
+
+<div class="row g-3" id="orders"></div>
+
+</div>
+
+<a href="/calculator" class="fab">+</a>
+
+<!-- EXISTING JS – UNTOUCHED -->
+<script>
+function daysBetween(a,b){return Math.ceil((b-a)/(1000*60*60*24))}
+
+async function loadKPIs(){
+  const d = await (await fetch("/api/dashboard/kpis")).json();
+  kpiOrders.innerText = d.orders;
+  kpiSqft.innerText = d.sqft;
+
+  kpiPanels.innerText = d.panels;   // ✅ ADD THIS LINE
+
+  kpiPending.innerText = d.status.Pending;
+  kpiCutting.innerText = d.status.Cutting;
+  kpiStitching.innerText = d.status.Stitching;
+  kpiCompleted.innerText = d.status.Completed;
+}
+
+
+async function loadOrders(){
+  const s=statusFilter.value;
+  const data=await (await fetch(`/api/orders/list?status=${s}`)).json();
+  const today=new Date();
+
+  orders.innerHTML=data.map(o=>{
+    const created=new Date(o.created_at);
+    const updated=o.updated_at?new Date(o.updated_at):created;
+    const due=o.due_date?new Date(o.due_date):new Date(created.getTime()+7*86400000);
+    const diff=daysBetween(today,due);
+
+    let badgeClass="badge-future",badgeText=`Due in ${diff} days`,overdue="";
+    if(diff<0){badgeClass="badge-overdue";badgeText=`Overdue ${Math.abs(diff)}d`;overdue="order-overdue"}
+    else if(diff===0){badgeClass="badge-today";badgeText="Due Today"}
+
+    const locked=o.status==="Completed";
+
+    return `
+    <div class="col-md-6">
+      <div class="order-card order-${o.status.toLowerCase()} ${overdue}">
+        <div class="fw-bold">${o.name}</div>
+        <div class="text-muted small">${o.phone}</div>
+
+        <div class="my-2">
+          <span class="badge badge-soft">${o.item_count} windows</span>
+          <span class="badge badge-soft">${o.panels} panels</span>
+          <span class="badge ${badgeClass}">${badgeText}</span>
+        </div>
+
+        <small class="text-muted">Due: ${due.toLocaleDateString()} | Last edit: ${updated.toLocaleDateString()}</small>
+
+        <div class="d-flex gap-2 mt-3">
+          <select class="form-select form-select-sm" ${locked?"disabled":""}
+            onchange="updateStatus('${o.order_id}',this.value)">
+            ${["Pending","Cutting","Stitching","Completed"]
+              .map(s=>`<option ${s===o.status?"selected":""}>${s}</option>`).join("")}
+          </select>
+
+          ${locked?"":`
+          <a href="/calculator?order_id=${o.order_id}" class="btn btn-outline-primary btn-sm">✏️</a>
+          <a href="/calculator?duplicate_from=${o.order_id}" class="btn btn-outline-secondary btn-sm">📄</a>
+          <button class="btn btn-outline-danger btn-sm"
+            onclick="deleteOrder('${o.order_id}')">🗑</button>`}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function updateStatus(id,status){
+  await fetch(`/api/orders/${id}/status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})});
+  loadKPIs();loadOrders();
+}
+
+async function deleteOrder(id){
+  if(!confirm("Delete this order? This cannot be undone."))return;
+  await fetch(`/api/orders/${id}`,{method:"DELETE"});
+  loadKPIs();loadOrders();
+}
+
+loadKPIs();loadOrders();
+</script>
+
+<script>
+function deleteOrder(id){
+  if(!confirm("Delete order?")) return;
+  fetch(`/api/orders/${id}`,{method:"DELETE"})
+    .then(()=>location.reload());
+}
+</script>
+
+</body>
+</html>
