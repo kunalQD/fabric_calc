@@ -319,7 +319,7 @@ function render(){
       <td>${e.Width}</td>
       <td>${e.Height}</td>
       <td>
-        ${e.Images && e.Images.length? `<button class="btn btn-info btn-sm me-1" onclick="viewImages(${i})">Images</button>`: ""}
+        ${Array.isArray(e.Images) && e.Images.length > 0 ? `<button class="btn btn-info btn-sm me-1" onclick="viewImages(${i})">Images</button>`: ""}
         <button class="btn btn-warning btn-sm" onclick="edit(${i})">Edit</button>
         <button class="btn btn-danger btn-sm" onclick="entries.splice(${i},1);render()">X</button>
       </td>
@@ -336,32 +336,66 @@ function resetForm(){
 
 /* ---------- SAVE ---------- */
 async function saveOrder(){
-  const fd=new FormData();
-  fd.append("name",custName.value);
-  fd.append("phone",custPhone.value);
-  fd.append("address",custAddr.value);
-  fd.append("showroom",showroom.value);
-  fd.append("status",orderStatus.value);
-  fd.append("due_date",dueDate.value);
-  fd.append("entries",JSON.stringify(entries));
-  await fetch(isEditMode?`/api/orders/${currentOrderId}`:"/api/orders",{
-    method:isEditMode?"PUT":"POST",
-    body:fd
+  const fd = new FormData();
+
+  fd.append("name", custName.value);
+  fd.append("phone", custPhone.value);
+  fd.append("address", custAddr.value);
+  fd.append("showroom", showroom.value);
+  fd.append("status", orderStatus.value);
+  fd.append("due_date", dueDate.value);
+
+  // 🔴 IMPORTANT: send entries WITHOUT file objects
+  const cleanEntries = entries.map(e => {
+    const copy = { ...e };
+    delete copy.Images;     // remove frontend files
+    delete copy._files;     // safety (if exists)
+    return copy;
   });
-  location.href="/dashboard";
+
+  fd.append("entries", JSON.stringify(cleanEntries));
+
+  // ✅ Append files separately (THIS WAS MISSING)
+  entries.forEach((e, i) => {
+    if (e.Images && e.Images.length) {
+      e.Images.forEach(file => {
+        if (file instanceof File) {
+          fd.append(`images_${i}`, file);
+        }
+      });
+    }
+  });
+
+  await fetch(
+    isEditMode ? `/api/orders/${currentOrderId}` : "/api/orders",
+    {
+      method: isEditMode ? "PUT" : "POST",
+      body: fd
+    }
+  );
+
+  location.href = "/dashboard";
 }
+
 function viewImages(index) {
   const imgs = entries[index].Images || [];
   const carousel = document.getElementById("carouselInner");
 
-  carousel.innerHTML = imgs.map((img, i) => `
-    <div class="carousel-item ${i === 0 ? "active" : ""}">
-      <img src="${URL.createObjectURL(img)}" class="d-block w-100 rounded">
-    </div>
-  `).join("");
+  carousel.innerHTML = imgs.map((img, i) => {
+    const src = typeof img === "string"
+      ? `/api/image/${img.replace("gridfs:", "")}`
+      : URL.createObjectURL(img);
+
+    return `
+      <div class="carousel-item ${i === 0 ? "active" : ""}">
+        <img src="${src}" class="d-block w-100 rounded">
+      </div>
+    `;
+  }).join("");
 
   new bootstrap.Modal(document.getElementById("imageModal")).show();
 }
+
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>

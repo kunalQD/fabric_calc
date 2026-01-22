@@ -177,11 +177,14 @@ def save_order():
 
     for i, e in enumerate(entries):
         imgs = request.files.getlist(f"images_{i}")
-        refs = []
-        for img in imgs:
-            fid = fs.put(img, filename=img.filename)
-            refs.append(f"gridfs:{fid}")
-        e["Images"] = refs
+        if imgs:
+            refs = []
+            for img in imgs:
+                fid = fs.put(img, filename=img.filename)
+                refs.append(f"gridfs:{fid}")
+            e["Images"] = refs
+        # else: DO NOT TOUCH existing Images
+
 
     order = {
         "_id": str(uuid.uuid4()),
@@ -198,26 +201,42 @@ def save_order():
 
 # ---------------- LOAD ORDER (EDIT) ----------------
 
-@app.route("/api/orders/<oid>", methods=["GET"])
-def get_order(oid):
-    if not is_logged_in(): return "Unauthorized", 401
+@app.route("/api/orders/<order_id>")
+def get_order(order_id):
+    if not is_logged_in():
+        return "Unauthorized", 401
 
-    order = db.orders.find_one({"_id": oid})
-    if not order:
-        return jsonify({"error": "Order not found"}), 404
+    o = db.orders.find_one({"_id": order_id})
+    if not o:
+        return "Not found", 404
 
-    cust = db.customers.find_one({"_id": ObjectId(order["customer_id"])})
+    # 🔹 Resolve customer safely (string or ObjectId)
+    cust = db.customers.find_one({"_id": o.get("customer_id")})
+    if not cust:
+        try:
+            cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
+        except:
+            cust = {}
+
+    # 🔹 Normalize Images key for frontend
+    for e in o.get("entries", []):
+        if "Images" not in e:
+            e["Images"] = []
 
     return jsonify({
-        "order_id": order["_id"],
-        "showroom": cust.get("showroom"),
-        "name": cust.get("name"),
-        "phone": cust.get("phone"),
-        "address": cust.get("address"),
-        "status": order.get("status"),
-        "due_date": order.get("due_date"),
-        "entries": order.get("entries", [])
+        "order_id": o["_id"],
+
+        # ✅ THESE WERE MISSING
+        "name": cust.get("name", ""),
+        "phone": cust.get("phone", ""),
+        "address": cust.get("address", ""),
+        "showroom": cust.get("showroom", ""),
+
+        "status": o.get("status"),
+        "due_date": o.get("due_date"),
+        "entries": o.get("entries", [])
     })
+
 
 # ---------------- UPDATE ORDER ----------------
 
