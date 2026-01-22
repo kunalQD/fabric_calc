@@ -189,24 +189,35 @@ body { background:#f4f7f6; font-size:14px; }
 </button>
 
 </div>
+<!-- IMAGE VIEW MODAL -->
 <div class="modal fade" id="imageModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
+
       <div class="modal-header">
         <h5 class="modal-title">Window Images</h5>
-        <button class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
+
       <div class="modal-body">
-        <div id="imageCarousel" class="carousel slide">
-          <div class="carousel-inner" id="carouselInner"></div>
-          <button class="carousel-control-prev" data-bs-target="#imageCarousel" data-bs-slide="prev">
+        <div id="imageCarousel" class="carousel slide" data-bs-ride="carousel">
+
+          <!-- ✅ THIS IS THE IMPORTANT LINE -->
+          <div id="carouselInner" class="carousel-inner"></div>
+
+          <button class="carousel-control-prev" type="button"
+                  data-bs-target="#imageCarousel" data-bs-slide="prev">
             <span class="carousel-control-prev-icon"></span>
           </button>
-          <button class="carousel-control-next" data-bs-target="#imageCarousel" data-bs-slide="next">
+
+          <button class="carousel-control-next" type="button"
+                  data-bs-target="#imageCarousel" data-bs-slide="next">
             <span class="carousel-control-next-icon"></span>
           </button>
+
         </div>
       </div>
+
     </div>
   </div>
 </div>
@@ -378,20 +389,44 @@ async function saveOrder(){
 }
 
 function viewImages(index) {
-  const imgs = entries[index].Images || [];
-  const carousel = document.getElementById("carouselInner");
+  const carouselInner = document.getElementById("carouselInner");
+  if (!carouselInner) return;
 
-  carousel.innerHTML = imgs.map((img, i) => {
-    const src = typeof img === "string"
-      ? `/api/image/${img.replace("gridfs:", "")}`
-      : URL.createObjectURL(img);
+  const imgs =
+    entries[index].Images ||
+    entries[index].images ||
+    [];
 
-    return `
-      <div class="carousel-item ${i === 0 ? "active" : ""}">
-        <img src="${src}" class="d-block w-100 rounded">
+  carouselInner.innerHTML = "";
+
+  if (!imgs.length) {
+    carouselInner.innerHTML = `
+      <div class="carousel-item active text-center py-5 text-muted">
+        No images added for this window
       </div>
     `;
-  }).join("");
+  } else {
+    imgs.forEach((img, i) => {
+      let src = "";
+
+      // ✅ THIS IS THE CRITICAL FIX
+      if (typeof img === "string" && img.startsWith("gridfs:")) {
+        src = "/api/image/" + img.replace("gridfs:", "");
+      } else if (img instanceof File) {
+        src = URL.createObjectURL(img);
+      } else {
+        return; // skip invalid
+      }
+
+      carouselInner.innerHTML += `
+        <div class="carousel-item ${i === 0 ? "active" : ""}">
+          <img src="${src}"
+               class="d-block w-100 rounded"
+               style="max-height:70vh;object-fit:contain">
+        </div>
+      `;
+    });
+  }
 
   new bootstrap.Modal(document.getElementById("imageModal")).show();
 }

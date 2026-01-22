@@ -119,6 +119,7 @@ def login():
             return redirect("/dashboard")
         return render_template("login.html", error="Invalid credentials")
     return render_template("login.html")
+    
 
 @app.route("/logout")
 def logout():
@@ -145,14 +146,26 @@ def calculator():
 
 @app.route("/api/image/<fid>")
 def image(fid):
-    if not is_logged_in(): return "Unauthorized", 401
-    if fid.startswith("gridfs:"):
-        fid = fid.replace("gridfs:", "")
+    if not is_logged_in():
+        return "Unauthorized", 401
+
     try:
-        f = fs.get(ObjectId(fid))
-        return send_file(io.BytesIO(f.read()), mimetype=f.content_type)
-    except:
+        from bson import ObjectId
+
+        # ✅ Convert string to ObjectId safely
+        file_id = ObjectId(fid)
+
+        f = fs.get(file_id)
+
+        return send_file(
+            io.BytesIO(f.read()),
+            mimetype=f.content_type or "image/jpeg"
+        )
+
+    except Exception as e:
+        print("Image load failed:", fid, e)
         return "Not found", 404
+
 
 # ---------------- CREATE ORDER ----------------
 
