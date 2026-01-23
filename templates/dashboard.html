@@ -19,39 +19,102 @@ body { background:#f4f6f9; font-size:14px; }
   padding:18px;
   color:#fff;
   box-shadow:0 6px 18px rgba(0,0,0,.12);
-  transition: transform .2s ease, box-shadow .2s ease;
 }
-.kpi-card:hover {
-  transform: translateY(-4px);
-  box-shadow:0 10px 26px rgba(0,0,0,.18);
-}
-
 .kpi-title { font-size:13px; opacity:.9 }
 .kpi-value { font-size:26px; font-weight:700 }
 
-/* Semantic KPI Colors */
-.kpi-orders {
-  background: linear-gradient(135deg,#2563EB,#1D4ED8);
-}
-.kpi-sqft {
-  background: linear-gradient(135deg,#059669,#047857);
-}
-.kpi-panels {
-  background: linear-gradient(135deg,#7C3AED,#6D28D9);
+.kpi-orders { background:linear-gradient(135deg,#2563EB,#1D4ED8); }
+.kpi-sqft { background:linear-gradient(135deg,#059669,#047857); }
+.kpi-panels { background:linear-gradient(135deg,#7C3AED,#6D28D9); }
+.kpi-pending { background:linear-gradient(135deg,#D97706,#B45309); }
+.kpi-cutting { background:linear-gradient(135deg,#0891B2,#0E7490); }
+.kpi-stitching { background:linear-gradient(135deg,#4F46E5,#4338CA); }
+.kpi-completed { background:linear-gradient(135deg,#1F2933,#111827); }
+
+/* ---------- FILTER PILLS (LEFT SIDE) ---------- */
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #eef2f7;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid #e2e8f0;
 }
 
-.kpi-pending {
-  background: linear-gradient(135deg,#D97706,#B45309);
+.filter-pill input {
+  margin: 0;
 }
-.kpi-cutting {
-  background: linear-gradient(135deg,#0891B2,#0E7490);
+
+
+.status-filter-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.kpi-stitching {
-  background: linear-gradient(135deg,#4F46E5,#4338CA);
+
+.status-filter-bar {
+  margin-top: 6px;
 }
-.kpi-completed {
-  background: linear-gradient(135deg,#1F2933,#111827);
+
+.status-pill {
+  background:#f1f5f9;
+  border:1px solid #e2e8f0;
 }
+
+.order-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.filter-pill input {
+  accent-color: #ef4444;
+  cursor: pointer;
+}
+
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #eef2f7;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.status-pill input {
+  margin: 0;
+}
+
+
+.status-check input {
+  margin-right: 6px;
+}
+
 
 /* ---------- ORDER CARDS ---------- */
 .order-card {
@@ -60,6 +123,7 @@ body { background:#f4f6f9; font-size:14px; }
   background:#fff;
   box-shadow:0 4px 14px rgba(0,0,0,.06);
   border-left:6px solid #cbd5e1;
+  position:relative;
 }
 
 .order-pending { border-color:#D97706; }
@@ -67,19 +131,26 @@ body { background:#f4f6f9; font-size:14px; }
 .order-stitching { border-color:#4F46E5; }
 .order-completed { border-color:#1F2933; }
 
-.order-overdue {
-  border-color:#dc2626;
-  background:#fff5f5;
-}
-
-/* ---------- BADGES ---------- */
-.badge-soft {
-  background:#e5e7eb;
-  color:#111827;
-}
+/* ---------- PILLS ---------- */
+.badge-soft { background:#e5e7eb; color:#111827; }
 .badge-future { background:#e0f2fe; color:#075985; }
 .badge-today { background:#fef3c7; color:#92400e; }
 .badge-overdue { background:#fee2e2; color:#991b1b; }
+
+.status-pill {
+  position:absolute;
+  top:14px;
+  right:14px;
+  padding:6px 12px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:600;
+  color:#fff;
+}
+.status-pending { background:#D97706; }
+.status-cutting { background:#0891B2; }
+.status-stitching { background:#4F46E5; }
+.status-completed { background:#1F2933; }
 
 /* ---------- FAB ---------- */
 .fab {
@@ -96,7 +167,6 @@ body { background:#f4f6f9; font-size:14px; }
   justify-content:center;
   font-size:28px;
   text-decoration:none;
-  box-shadow:0 8px 20px rgba(0,0,0,.25);
 }
 </style>
 </head>
@@ -112,67 +182,58 @@ body { background:#f4f6f9; font-size:14px; }
 
 <!-- KPI -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-orders">
-      <div class="kpi-title">Orders</div>
-      <div id="kpiOrders" class="kpi-value">0</div>
-    </div>
-  </div>
+  <div class="col-6 col-md-2"><div class="kpi-card kpi-orders"><div class="kpi-title">Orders</div><div id="kpiOrders" class="kpi-value">0</div></div></div>
+  <div class="col-6 col-md-2"><div class="kpi-card kpi-sqft"><div class="kpi-title">SQFT</div><div id="kpiSqft" class="kpi-value">0</div></div></div>
+  <div class="col-6 col-md-2"><div class="kpi-card kpi-panels"><div class="kpi-title">Panels</div><div id="kpiPanels" class="kpi-value">0</div></div></div>
+  <div class="col-6 col-md-2"><div class="kpi-card kpi-pending"><div class="kpi-title">Pending</div><div id="kpiPending" class="kpi-value">0</div></div></div>
+  <div class="col-6 col-md-2"><div class="kpi-card kpi-cutting"><div class="kpi-title">Cutting</div><div id="kpiCutting" class="kpi-value">0</div></div></div>
+  <div class="col-6 col-md-2"><div class="kpi-card kpi-stitching"><div class="kpi-title">Stitching</div><div id="kpiStitching" class="kpi-value">0</div></div></div>
+</div>
 
-  <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-sqft">
-      <div class="kpi-title">SQFT</div>
-      <div id="kpiSqft" class="kpi-value">0</div>
-    </div>
-  </div>
+<div class="mb-3">
+  <h5 class="fw-bold mb-2">Orders</h5>
 
-  <div class="col-6 col-md-2">
-  <div class="kpi-card kpi-panels">
-    <div class="kpi-title">Panels</div>
-    <div id="kpiPanels" class="kpi-value">0</div>
+  <div class="order-filters">
+
+    <!-- SHOWROOM FILTER -->
+    <div class="filter-group" id="showroomFilters">
+      <label class="filter-pill">
+        <input type="checkbox" value="Anna Nagar" checked>
+        Anna Nagar
+      </label>
+
+      <label class="filter-pill">
+        <input type="checkbox" value="Valasaravakkam" checked>
+        Valasaravakkam
+      </label>
+    </div>
+
+    <!-- STATUS FILTER -->
+    <div class="filter-group" id="statusFilters">
+      <label class="filter-pill">
+        <input type="checkbox" value="Pending" checked>
+        Pending
+      </label>
+
+      <label class="filter-pill">
+        <input type="checkbox" value="Cutting" checked>
+        Cutting
+      </label>
+
+      <label class="filter-pill">
+        <input type="checkbox" value="Stitching">
+        Stitching
+      </label>
+
+      <label class="filter-pill">
+        <input type="checkbox" value="Completed">
+        Completed
+      </label>
+    </div>
+
   </div>
 </div>
 
-
-  <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-pending">
-      <div class="kpi-title">Pending</div>
-      <div id="kpiPending" class="kpi-value">0</div>
-    </div>
-  </div>
-
-  <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-cutting">
-      <div class="kpi-title">Cutting</div>
-      <div id="kpiCutting" class="kpi-value">0</div>
-    </div>
-  </div>
-
-  <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-stitching">
-      <div class="kpi-title">Stitching</div>
-      <div id="kpiStitching" class="kpi-value">0</div>
-    </div>
-  </div>
-
-  <div class="col-6 col-md-2">
-    <div class="kpi-card kpi-completed">
-      <div class="kpi-title">Completed</div>
-      <div id="kpiCompleted" class="kpi-value">0</div>
-    </div>
-  </div>
-</div>
-
-<div class="d-flex justify-content-between mb-3">
-  <h5 class="fw-bold">Orders</h5>
-  <select id="statusFilter" class="form-select w-auto" onchange="loadOrders()">
-    <option>All</option>
-    <option>Pending</option>
-    <option>Cutting</option>
-    <option>Stitching</option>
-    <option>Completed</option>
-  </select>
-</div>
 
 <div class="row g-3" id="orders"></div>
 
@@ -180,7 +241,6 @@ body { background:#f4f6f9; font-size:14px; }
 
 <a href="/calculator" class="fab">+</a>
 
-<!-- EXISTING JS – UNTOUCHED -->
 <script>
 function daysBetween(a,b){return Math.ceil((b-a)/(1000*60*60*24))}
 
@@ -188,85 +248,126 @@ async function loadKPIs(){
   const d = await (await fetch("/api/dashboard/kpis")).json();
   kpiOrders.innerText = d.orders;
   kpiSqft.innerText = d.sqft;
-
-  kpiPanels.innerText = d.panels;   // ✅ ADD THIS LINE
-
+  kpiPanels.innerText = d.panels;
   kpiPending.innerText = d.status.Pending;
   kpiCutting.innerText = d.status.Cutting;
   kpiStitching.innerText = d.status.Stitching;
-  kpiCompleted.innerText = d.status.Completed;
 }
+
 
 
 async function loadOrders(){
-  const s=statusFilter.value;
-  const data=await (await fetch(`/api/orders/list?status=${s}`)).json();
-  const today=new Date();
+  const checkedStatuses = Array.from(
+    document.querySelectorAll('#statusFilters input:checked')
+  ).map(cb => cb.value);
 
-  orders.innerHTML=data.map(o=>{
-    const created=new Date(o.created_at);
-    const updated=o.updated_at?new Date(o.updated_at):created;
-    const due=o.due_date?new Date(o.due_date):new Date(created.getTime()+7*86400000);
-    const diff=daysBetween(today,due);
+  if (checkedStatuses.length === 0) {
+    orders.innerHTML = `
+      <div class="text-muted text-center py-5">
+        No status selected
+      </div>`;
+    return;
+  }
 
-    let badgeClass="badge-future",badgeText=`Due in ${diff} days`,overdue="";
-    if(diff<0){badgeClass="badge-overdue";badgeText=`Overdue ${Math.abs(diff)}d`;overdue="order-overdue"}
-    else if(diff===0){badgeClass="badge-today";badgeText="Due Today"}
+  const showroomChecked = Array.from(
+    document.querySelectorAll('#showroomFilters input:checked')
+  ).map(cb => cb.value);
 
-    const locked=o.status==="Completed";
+  console.log("Showrooms:", showroomChecked);
+  console.log("Statuses:", checkedStatuses);
+
+  const qs = new URLSearchParams();
+  qs.set("status", checkedStatuses.join(","));
+
+  if (showroomChecked.length) {
+    qs.set("showroom", showroomChecked.join(","));
+  }
+
+  const res = await fetch(`/api/orders/list?${qs.toString()}`);
+
+  if (!res.ok) {
+    console.error("Order fetch failed");
+    return;
+  }
+
+  const data = await res.json();   // ✅ THIS WAS MISSING
+
+  renderOrders(data);              // ✅ now data exists
+}
+
+function renderOrders(data){
+  const today = new Date();
+
+  orders.innerHTML = data.map(o => {
+    const due = o.due_date ? new Date(o.due_date) : null;
+    let badgeClass = "badge-future";
+    let badgeText = "No due date";
+
+    if (due) {
+      const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+      if (diff < 0) {
+        badgeClass = "badge-overdue";
+        badgeText = `Overdue ${Math.abs(diff)}d`;
+      } else if (diff === 0) {
+        badgeClass = "badge-today";
+        badgeText = "Due Today";
+      } else {
+        badgeText = `Due in ${diff} days`;
+      }
+    }
 
     return `
-    <div class="col-md-6">
-      <div class="order-card order-${o.status.toLowerCase()} ${overdue}">
-        <div class="fw-bold">${o.name}</div>
-        <div class="text-muted small">${o.phone}</div>
+      <div class="col-md-6">
+        <div class="order-card order-${o.status.toLowerCase()}">
 
-        <div class="my-2">
-          <span class="badge badge-soft">${o.item_count} windows</span>
-          <span class="badge badge-soft">${o.panels} panels</span>
-          <span class="badge ${badgeClass}">${badgeText}</span>
+          <span class="status-pill status-${o.status.toLowerCase()}">
+            ${o.status}
+          </span>
+
+          <div class="fw-bold">${o.name || "-"}</div>
+          <div class="text-muted small">${o.phone || ""}</div>
+
+          <div class="my-2">
+            <span class="badge badge-soft">${o.item_count} windows</span>
+            <span class="badge badge-soft">${o.panels} panels</span>
+            <span class="badge badge-soft">${o.showroom || "—"}</span>
+            <span class="badge ${badgeClass}">${badgeText}</span>
+          </div>
+
+          <div class="d-flex gap-2 mt-3">
+            <a href="/calculator?order_id=${o.order_id}"
+               class="btn btn-outline-primary btn-sm">✏️</a>
+
+            <a href="/api/orders/${o.order_id}/print"
+               class="btn btn-outline-secondary btn-sm">⬇️</a>
+
+            <button class="btn btn-outline-danger btn-sm"
+              onclick="deleteOrder('${o.order_id}')">🗑</button>
+          </div>
         </div>
-
-        <small class="text-muted">Due: ${due.toLocaleDateString()} | Last edit: ${updated.toLocaleDateString()}</small>
-
-        <div class="d-flex gap-2 mt-3">
-          <select class="form-select form-select-sm" ${locked?"disabled":""}
-            onchange="updateStatus('${o.order_id}',this.value)">
-            ${["Pending","Cutting","Stitching","Completed"]
-              .map(s=>`<option ${s===o.status?"selected":""}>${s}</option>`).join("")}
-          </select>
-
-          ${locked?"":`
-          <a href="/calculator?order_id=${o.order_id}" class="btn btn-outline-primary btn-sm">✏️</a>
-          <a href="/calculator?duplicate_from=${o.order_id}" class="btn btn-outline-secondary btn-sm">📄</a>
-          <button class="btn btn-outline-danger btn-sm"
-            onclick="deleteOrder('${o.order_id}')">🗑</button>`}
-        </div>
-      </div>
-    </div>`;
+      </div>`;
   }).join("");
 }
 
-async function updateStatus(id,status){
-  await fetch(`/api/orders/${id}/status`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status})});
-  loadKPIs();loadOrders();
-}
+
 
 async function deleteOrder(id){
-  if(!confirm("Delete this order? This cannot be undone."))return;
+  if(!confirm("Delete this order?")) return;
   await fetch(`/api/orders/${id}`,{method:"DELETE"});
   loadKPIs();loadOrders();
 }
 
 loadKPIs();loadOrders();
-</script>
 
-<script>
-function deleteOrder(id){
-  if(!confirm("Delete order?")) return;
-  fetch(`/api/orders/${id}`,{method:"DELETE"})
-    .then(()=>location.reload());
-}
+document.querySelectorAll('#statusFilters input').forEach(cb => {
+  cb.addEventListener('change', () => {
+    loadOrders();
+  });
+});
+
+document
+  .querySelectorAll('#statusFilters input, #showroomFilters input')
+  .forEach(cb => cb.addEventListener('change', loadOrders));
 </script>
 
 </body>

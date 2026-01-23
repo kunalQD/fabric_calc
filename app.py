@@ -8,6 +8,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
+from reportlab.platypus import Image as RLImage
+from reportlab.lib.units import inch
 
 
 app = Flask(__name__)
@@ -141,6 +143,136 @@ def dashboard():
 def calculator():
     if not is_logged_in(): return redirect("/login")
     return render_template("index.html")
+
+@app.route("/api/orders/<oid>/print")
+def print_order(oid):
+    if not is_logged_in():
+        return "Unauthorized", 401
+
+    order = db.orders.find_one({"_id": oid})
+    if not order:
+        return "Order not found", 404
+
+    customer = db.customers.find_one(
+        {"_id": ObjectId(order["customer_id"])}
+    )
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36
+    )
+
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # ---------- HEADER ----------
+    elements.append(Paragraph("<b>Quilt & Drapes</b>", styles["Title"]))
+    elements.append(Spacer(1, 10))
+
+    meta = [
+        f"<b>Name:</b> {customer.get('name','')}",
+        f"<b>Phone:</b> {customer.get('phone','')}",
+        f"<b>Address:</b> {customer.get('address','')}",
+        f"<b>Showroom:</b> {customer.get('showroom','')}",
+        f"<b>Status:</b> {order.get('status','')}",
+        f"<b>Due Date:</b> {order.get('due_date','')}"
+    ]
+
+    for m in meta:
+        elements.append(Paragraph(m, styles["Normal"]))
+
+    elements.append(Spacer(1, 14))
+
+    # ---------- WINDOW TABLE ----------
+    table_data = [[
+        "Window", "Stitch", "Lining", "Width", "Height",
+        "Panels", "Qty (Mtrs)", "Track (ft)"
+    ]]
+
+    for e in order.get("entries", []):
+        table_data.append([
+            e.get("Window",""),
+            e.get("Stitch",""),
+            e.get("Lining",""),
+            e.get("Width",""),
+            e.get("Height",""),
+            e.get("Panels",""),
+            f"{float(e.get('Quantity',0)):.2f}",
+            e.get("Track","")
+        ])
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#f1f5f9")),
+        ("FONT", (0,0), (-1,0), "Helvetica-Bold"),
+        ("ALIGN", (3,1), (-1,-1), "CENTER"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ("TOPPADDING", (0,0), (-1,-1), 6),
+    ]))
+
+    elements.append(table)
+    elements.append(Spacer(1, 16))
+
+    # ---------- WINDOW IMAGES ----------
+    for idx, e in enumerate(order.get("entries", []), start=1):
+        imgs = e.get("Images", [])
+        if not imgs:
+            continue
+
+        elements.append(
+            Paragraph(f"<b>Window {idx}: {e.get('Window','')}</b>",
+                      styles["Heading3"])
+        )
+        elements.append(Spacer(1, 8))
+
+        row = []
+        rows = []
+
+        for ref in imgs:
+            try:
+                fid = ref.replace("gridfs:", "")
+                f = fs.get(ObjectId(fid))
+                img_data = io.BytesIO(f.read())
+
+                img = RLImage(img_data, width=2.5*inch, height=2.5*inch)
+                img.hAlign = "LEFT"
+                row.append(img)
+
+                if len(row) == 3:
+                    rows.append(row)
+                    row = []
+            except:
+                continue
+
+        if row:
+            rows.append(row)
+
+        for r in rows:
+            elements.append(Table([r], colWidths=[130]*len(r)))
+            elements.append(Spacer(1, 6))
+
+        elements.append(Spacer(1, 12))
+
+    # ---------- BUILD ----------
+    doc.build(elements)
+    buffer.seek(0)
+
+    filename = f"Order_{customer.get('name','').replace(' ','_')}.pdf"
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf"
+    )
+
 
 # ---------------- IMAGES ----------------
 
@@ -316,18 +448,26 @@ def delete_order(oid):
 
 @app.route("/api/orders/list")
 def list_orders():
+
+    print("Listing orders with args:", request.args)
     if not is_logged_in():
         return jsonify({"error": "unauthorized"}), 401
 
     status = request.args.get("status")
-    q = {} if status in (None, "All") else {"status": status}
+    showroom = request.args.get("showroom")
+
+    q = {}
+
+    # ✅ STATUS FILTER (orders collection)
+    if status:
+        q["status"] = {"$in": status.split(",")}
 
     out = []
 
     for o in db.orders.find(q).sort("created_at", DESCENDING):
 
+        # 🔹 Fetch customer safely
         cust = db.customers.find_one({"_id": o.get("customer_id")})
-
         if not cust:
             try:
                 cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
@@ -335,7 +475,13 @@ def list_orders():
                 cust = None
 
         if not cust:
-            cust = {"name": "Unknown", "phone": "-"}
+            continue
+
+        # ✅ SHOWROOM FILTER (customer collection)
+        if showroom:
+            allowed = showroom.split(",")
+            if cust.get("showroom") not in allowed:
+                continue
 
         sqft = 0
         panels = 0
@@ -352,13 +498,14 @@ def list_orders():
             "created_at": o.get("created_at"),
             "updated_at": o.get("updated_at"),
             "due_date": o.get("due_date"),
-
+            "showroom": cust.get("showroom", ""),
             "item_count": len(o.get("entries") or []),
             "panels": panels,
             "sqft": round(sqft, 2)
         })
 
     return jsonify(out)
+
 
 
 # ---------------- RUN ----------------

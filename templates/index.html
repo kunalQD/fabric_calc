@@ -21,6 +21,40 @@ body { background:#f4f7f6; font-size:14px; }
 }
 
 .table thead th { white-space:nowrap; }
+
+/* Change carousel arrow color */
+.carousel-control-prev-icon,
+.carousel-control-next-icon {
+  filter: invert(1);
+}
+
+
+.image-thumb {
+  width: 110px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+
+.image-tile {
+  position: relative;
+  display: inline-block;
+}
+
+.image-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: #dc3545;
+  color: #fff;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+}
 </style>
 </head>
 
@@ -145,6 +179,7 @@ body { background:#f4f7f6; font-size:14px; }
   <div class="col-12">
   <label class="form-label">Window Images</label>
   <input type="file" id="winImages" class="form-control" multiple>
+  <div id="imagePreview" class="mt-2 d-flex flex-wrap gap-2"></div>
 </div>
 
 </div>
@@ -223,7 +258,9 @@ body { background:#f4f7f6; font-size:14px; }
 </div>
 
 <script>
+const imagePreview = document.getElementById("imagePreview");
 let entries=[], editIndex=null, isEditMode=false, currentOrderId=null;
+let preservedImages = [];
 
 /* ---------- CALC ---------- */
 function calcPanels(s,w){
@@ -265,52 +302,101 @@ document.addEventListener("DOMContentLoaded",async()=>{
   }
 });
 
-/* ---------- ADD / UPDATE ---------- */
-function addOrUpdateWindow(){
-  const w=Number(width.value)||0;
-  const h=Number(height.value)||0;
-  const s=stitch.value;
+winImages.addEventListener("change", () => {
+  for (let file of winImages.files) {
+    preservedImages.push(file);
+  }
+  winImages.value = null; // allow re-select
+  renderImagePreview();
+});
 
-  const baseEntry={
-    Stitch: s,
+
+/* ---------- ADD / UPDATE ---------- */
+function addOrUpdateWindow() {
+  let imgs = preservedImages || [];
+  const stitchType = stitch.value;
+  const w = Number(width.value);
+  const h = Number(height.value);
+
+  // ✅ If user selected NEW images, REPLACE
+  if (winImages.files.length > 0) {
+    imgs = [...winImages.files];
+  }
+
+  const entry = {
+    Window: winName.value,
+    Stitch: stitch.value,
     Lining: lining.value,
-    Width: w,
-    Height: h,
-    Panels: calcPanels(s,w),
-    Quantity: calcQty(s,w,h),
-    Track: calcTrack(s,w),
-    SQFT: calcSqft(s,w,h),
+    Width: +width.value,
+    Height: +height.value,
+    Panels: calcPanels(stitch.value, +width.value),
+    Quantity: calcQty(stitch.value, +width.value, +height.value),
+    Track: calcTrack(stitch.value, +width.value),
+    SQFT: calcSqft(stitch.value, +width.value, +height.value),
     Notes: winNotes.value,
-    Images: [...winImages.files]
+    Images: preservedImages
   };
 
-  if(editIndex!==null){
-    entries.splice(editIndex,1);
-    editIndex=null;
+  if (editIndex !== null) {
+    entries.splice(editIndex, 1);
+    editIndex = null;
   }
 
-  if(isDouble.checked){
-    entries.push({ Window: winName.value+" - Layer 1", ...baseEntry });
-    entries.push({ Window: winName.value+" - Layer 2", ...baseEntry });
-  } else {
-    entries.push({ Window: winName.value, ...baseEntry });
-  }
+  entries.push(entry);
+
+  // ✅ RESET preserved images
+  preservedImages = [];
+  imagePreview.innerHTML = "";
 
   render();
   resetForm();
 }
 
-/* ---------- EDIT ---------- */
-function edit(i){
-  editIndex=i;
-  const e=entries[i];
-  winName.value=e.Window;
-  stitch.value=e.Stitch;
-  lining.value=e.Lining;
-  width.value=e.Width;
-  height.value=e.Height;
-  winNotes.value=e.Notes||"";
+function renderImagePreview() {
+  imagePreview.innerHTML = "";
+
+  preservedImages.forEach((img, idx) => {
+    let src = "";
+
+    if (typeof img === "string" && img.startsWith("gridfs:")) {
+      src = "/api/image/" + img.replace("gridfs:", "");
+    } else if (img instanceof File) {
+      src = URL.createObjectURL(img);
+    }
+
+    imagePreview.innerHTML += `
+      <div class="image-tile">
+        <img src="${src}" class="image-thumb">
+        <button class="image-remove" onclick="removeImage(${idx})">×</button>
+      </div>
+    `;
+  });
 }
+
+function removeImage(index) {
+  preservedImages.splice(index, 1);
+  renderImagePreview();
+}
+
+
+/* ---------- EDIT ---------- */
+function edit(i) {
+  editIndex = i;
+  const e = entries[i];
+
+  winName.value = e.Window || "";
+  winDesc.value = e.Description || "";
+  winNotes.value = e.Notes || "";
+  width.value = e.Width || 0;
+  height.value = e.Height || 0;
+  stitch.value = e.Stitch || stitch.options[0].value;
+  lining.value = e.Lining || lining.options[0].value;
+
+  preservedImages = Array.isArray(e.Images) ? [...e.Images] : [];
+
+  renderImagePreview();
+}
+
 
 /* ---------- RENDER ---------- */
 function render(){
@@ -339,11 +425,24 @@ function render(){
 }
 
 /* ---------- RESET ---------- */
-function resetForm(){
-  winName.value=winDesc.value=winNotes.value="";
-  width.value=height.value=0;
-  lining.value="No Lining";
+function resetForm() {
+  winName.value = "";
+  winDesc.value = "";
+  winNotes.value = "";
+  width.value = 0;
+  height.value = 0;
+  stitch.value = stitch.options[0].value;
+  lining.value = lining.options[0].value;
+
+  // ✅ CLEAR FILE INPUT PROPERLY
+  winImages.value = null;
+
+  // ✅ CLEAR PREVIEW
+  imagePreview.innerHTML = "";
+
+  editIndex = null;
 }
+
 
 /* ---------- SAVE ---------- */
 async function saveOrder(){
@@ -359,7 +458,7 @@ async function saveOrder(){
   // 🔴 IMPORTANT: send entries WITHOUT file objects
   const cleanEntries = entries.map(e => {
     const copy = { ...e };
-    delete copy.Images;     // remove frontend files
+    copy.Images = e.Images.filter(img => typeof img === "string");    // remove frontend files
     delete copy._files;     // safety (if exists)
     return copy;
   });
