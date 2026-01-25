@@ -258,6 +258,7 @@ body { background:#f4f7f6; font-size:14px; }
 </div>
 
 <script>
+let deletedImages = {};
 const imagePreview = document.getElementById("imagePreview");
 let entries=[], editIndex=null, isEditMode=false, currentOrderId=null;
 let preservedImages = [];
@@ -313,44 +314,64 @@ winImages.addEventListener("change", () => {
 
 /* ---------- ADD / UPDATE ---------- */
 function addOrUpdateWindow() {
-  let imgs = preservedImages || [];
-  const stitchType = stitch.value;
-  const w = Number(width.value);
-  const h = Number(height.value);
 
-  // ✅ If user selected NEW images, REPLACE
-  if (winImages.files.length > 0) {
-    imgs = [...winImages.files];
+  // 1️⃣ Build window name
+  let windowLabel = winName.value.trim();
+  const isDoubleCurtain = isDouble.checked;
+
+  if (isDoubleCurtain && !windowLabel.includes("(Double Curtain)")) {
+    windowLabel += " (Double Curtain)";
   }
 
+  // 2️⃣ Calculations
+  const basePanels = calcPanels(stitch.value, +width.value);
+  const panels = isDoubleCurtain ? basePanels * 2 : basePanels;
+
+  const quantity = calcQty(stitch.value, +width.value, +height.value);
+  const track = calcTrack(stitch.value, +width.value);
+  const sqft = calcSqft(stitch.value, +width.value, +height.value);
+
+  // 3️⃣ Stable window_id
+  const winId =
+    editIndex !== null && entries[editIndex].window_id
+      ? entries[editIndex].window_id
+      : crypto.randomUUID();
+
+  // 4️⃣ Build entry (DO NOT lose Images)
   const entry = {
-    Window: winName.value,
+    window_id: winId,
+    Window: windowLabel,
     Stitch: stitch.value,
     Lining: lining.value,
     Width: +width.value,
     Height: +height.value,
-    Panels: calcPanels(stitch.value, +width.value),
-    Quantity: calcQty(stitch.value, +width.value, +height.value),
-    Track: calcTrack(stitch.value, +width.value),
-    SQFT: calcSqft(stitch.value, +width.value, +height.value),
+    Panels: panels,
+    Quantity: quantity,
+    Track: track,
+    SQFT: sqft,
     Notes: winNotes.value,
-    Images: preservedImages
+    Images: [...preservedImages]
   };
 
+  // 5️⃣ Update in place (DO NOT splice + push)
   if (editIndex !== null) {
-    entries.splice(editIndex, 1);
+    entries[editIndex] = entry;
     editIndex = null;
+  } else {
+    entries.push(entry);
   }
 
-  entries.push(entry);
-
-  // ✅ RESET preserved images
+  // 6️⃣ Reset UI state
   preservedImages = [];
+  deletedImages[winId] = deletedImages[winId] || [];
   imagePreview.innerHTML = "";
+  winImages.value = null;
+  isDouble.checked = false;
 
   render();
   resetForm();
 }
+
 
 function renderImagePreview() {
   imagePreview.innerHTML = "";
@@ -374,9 +395,26 @@ function renderImagePreview() {
 }
 
 function removeImage(index) {
+  const img = preservedImages[index];
+
+  // Track deletion only for GridFS images
+  if (
+    typeof img === "string" &&
+    img.startsWith("gridfs:") &&
+    editIndex !== null
+  ) {
+    const wid = entries[editIndex].window_id;
+    const fid = img.replace("gridfs:", "");
+
+    if (!deletedImages[wid]) deletedImages[wid] = [];
+    deletedImages[wid].push(fid);
+  }
+
   preservedImages.splice(index, 1);
   renderImagePreview();
 }
+
+
 
 
 /* ---------- EDIT ---------- */
@@ -384,18 +422,29 @@ function edit(i) {
   editIndex = i;
   const e = entries[i];
 
-  winName.value = e.Window || "";
-  winDesc.value = e.Description || "";
-  winNotes.value = e.Notes || "";
-  width.value = e.Width || 0;
-  height.value = e.Height || 0;
-  stitch.value = e.Stitch || stitch.options[0].value;
-  lining.value = e.Lining || lining.options[0].value;
+  // Restore name + double curtain
+  const isDoubleCurtain =
+    e.Window && e.Window.includes("(Double Curtain)");
 
+  winName.value = e.Window
+    ? e.Window.replace(" (Double Curtain)", "")
+    : "";
+
+  stitch.value = e.Stitch;
+  lining.value = e.Lining;
+  width.value = e.Width;
+  height.value = e.Height;
+  winNotes.value = e.Notes || "";
+
+  isDouble.checked = isDoubleCurtain;
+
+  // IMPORTANT: load images ONLY for this window
   preservedImages = Array.isArray(e.Images) ? [...e.Images] : [];
 
   renderImagePreview();
 }
+
+
 
 
 /* ---------- RENDER ---------- */
@@ -456,25 +505,29 @@ async function saveOrder(){
   fd.append("due_date", dueDate.value);
 
   // 🔴 IMPORTANT: send entries WITHOUT file objects
-  const cleanEntries = entries.map(e => {
-    const copy = { ...e };
-    copy.Images = e.Images.filter(img => typeof img === "string");    // remove frontend files
-    delete copy._files;     // safety (if exists)
-    return copy;
-  });
+  const cleanEntries = entries.map(e => ({
+    ...e,
+    Images: Array.isArray(e.Images)
+      ? e.Images.filter(img => typeof img === "string")
+      : []
+  }));
+
 
   fd.append("entries", JSON.stringify(cleanEntries));
 
   // ✅ Append files separately (THIS WAS MISSING)
-  entries.forEach((e, i) => {
-    if (e.Images && e.Images.length) {
-      e.Images.forEach(file => {
-        if (file instanceof File) {
-          fd.append(`images_${i}`, file);
-        }
-      });
-    }
-  });
+  entries.forEach(e => {
+  if (e.Images && e.Images.length) {
+    e.Images.forEach(file => {
+      if (file instanceof File) {
+        fd.append(`images_${e.window_id}`, file);
+      }
+    });
+  }
+});
+
+fd.append("deleted_images", JSON.stringify(deletedImages));
+
 
   await fetch(
     isEditMode ? `/api/orders/${currentOrderId}` : "/api/orders",

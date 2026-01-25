@@ -395,6 +395,16 @@ def update_order(oid):
 
     entries = json.loads(request.form["entries"])
 
+    deleted_images = json.loads(request.form.get("deleted_images", "{}"))
+
+    for wid, files in deleted_images.items():
+        for fid in files:
+            try:
+                fs.delete(ObjectId(fid))
+            except:
+                pass
+
+
     cust = {
         "name": request.form["name"],
         "phone": request.form["phone"],
@@ -403,14 +413,25 @@ def update_order(oid):
     }
 
     db.customers.update_one({"_id": ObjectId(order["customer_id"])}, {"$set": cust})
+    old_map = {
+        e.get("window_id"): e.get("Images", [])
+        for e in order.get("entries", [])
+    }
 
-    old_entries = order.get("entries", [])
-    for i, e in enumerate(entries):
-        preserved = old_entries[i].get("Images", []) if i < len(old_entries) else []
-        for img in request.files.getlist(f"images_{i}"):
-            fid = fs.put(img, filename=img.filename)
+    for e in entries:
+        wid = e.get("window_id")
+
+        # start ONLY from what frontend sent
+        preserved = e.get("Images", [])
+
+        # append new uploads
+        for img in request.files.getlist(f"images_{wid}"):
+            fid = fs.put(img, filename=img.filename, content_type=img.content_type)
             preserved.append(f"gridfs:{fid}")
+
         e["Images"] = preserved
+
+
 
     db.orders.update_one(
         {"_id": oid},

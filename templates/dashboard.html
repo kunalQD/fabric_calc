@@ -191,47 +191,67 @@ body { background:#f4f6f9; font-size:14px; }
 </div>
 
 <div class="mb-3">
-  <h5 class="fw-bold mb-2">Orders</h5>
 
-  <div class="order-filters">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
 
-    <!-- SHOWROOM FILTER -->
-    <div class="filter-group" id="showroomFilters">
-      <label class="filter-pill">
-        <input type="checkbox" value="Anna Nagar" checked>
-        Anna Nagar
-      </label>
+    <!-- LEFT : Filters -->
+    <div>
+      <h5 class="fw-bold mb-2">Orders</h5>
 
-      <label class="filter-pill">
-        <input type="checkbox" value="Valasaravakkam" checked>
-        Valasaravakkam
-      </label>
+      <div class="order-filters">
+
+        <!-- SHOWROOM FILTER -->
+        <div class="filter-group" id="showroomFilters">
+          <label class="filter-pill">
+            <input type="checkbox" value="Anna Nagar" checked>
+            Anna Nagar
+          </label>
+
+          <label class="filter-pill">
+            <input type="checkbox" value="Valasaravakkam" checked>
+            Valasaravakkam
+          </label>
+        </div>
+
+        <!-- STATUS FILTER -->
+        <div class="filter-group" id="statusFilters">
+          <label class="filter-pill">
+            <input type="checkbox" value="Pending" checked>
+            Pending
+          </label>
+
+          <label class="filter-pill">
+            <input type="checkbox" value="Cutting" checked>
+            Cutting
+          </label>
+
+          <label class="filter-pill">
+            <input type="checkbox" value="Stitching">
+            Stitching
+          </label>
+
+          <label class="filter-pill">
+            <input type="checkbox" value="Completed">
+            Completed
+          </label>
+        </div>
+
+      </div>
     </div>
 
-    <!-- STATUS FILTER -->
-    <div class="filter-group" id="statusFilters">
-      <label class="filter-pill">
-        <input type="checkbox" value="Pending" checked>
-        Pending
-      </label>
-
-      <label class="filter-pill">
-        <input type="checkbox" value="Cutting" checked>
-        Cutting
-      </label>
-
-      <label class="filter-pill">
-        <input type="checkbox" value="Stitching">
-        Stitching
-      </label>
-
-      <label class="filter-pill">
-        <input type="checkbox" value="Completed">
-        Completed
-      </label>
+    <!-- RIGHT : Sort -->
+    <div class="d-flex align-items-center gap-2">
+      <label class="fw-semibold small mb-0">Sort by</label>
+      <select id="sortSelect" class="form-select form-select-sm w-auto">
+        <option value="due_asc">Due Date ↑ (Earliest)</option>
+        <option value="due_desc">Due Date ↓ (Latest)</option>
+        <option value="status_asc">Status (Pending → Completed)</option>
+        <option value="status_desc">Status (Completed → Pending)</option>
+      </select>
     </div>
 
   </div>
+
 </div>
 
 
@@ -290,10 +310,45 @@ async function loadOrders(){
     return;
   }
 
-  const data = await res.json();   // ✅ THIS WAS MISSING
+  const data = await res.json();
 
-  renderOrders(data);              // ✅ now data exists
+const sortedData = sortOrders(data); // ✅ APPLY SORT HERE
+renderOrders(sortedData);
+
+              // ✅ now data exists
 }
+
+function sortOrders(data) {
+  const sortBy = document.getElementById("sortSelect")?.value;
+
+  const statusRank = {
+    "Pending": 1,
+    "Cutting": 2,
+    "Stitching": 3,
+    "Completed": 4
+  };
+
+  return [...data].sort((a, b) => {
+    if (sortBy === "due_asc") {
+      return new Date(a.due_date || 0) - new Date(b.due_date || 0);
+    }
+
+    if (sortBy === "due_desc") {
+      return new Date(b.due_date || 0) - new Date(a.due_date || 0);
+    }
+
+    if (sortBy === "status_asc") {
+      return (statusRank[a.status] || 99) - (statusRank[b.status] || 99);
+    }
+
+    if (sortBy === "status_desc") {
+      return (statusRank[b.status] || 99) - (statusRank[a.status] || 99);
+    }
+
+    return 0;
+  });
+}
+
 
 function renderOrders(data){
   const today = new Date();
@@ -368,6 +423,10 @@ document.querySelectorAll('#statusFilters input').forEach(cb => {
 document
   .querySelectorAll('#statusFilters input, #showroomFilters input')
   .forEach(cb => cb.addEventListener('change', loadOrders));
+
+document.getElementById("sortSelect")
+  ?.addEventListener("change", loadOrders);
+
 </script>
 
 </body>
