@@ -393,8 +393,10 @@ function renderOrders(data){
             <a href="/calculator?order_id=${o.order_id}"
                class="btn btn-outline-primary btn-sm">✏️</a>
 
-            <a href="/api/orders/${o.order_id}/print"
-               class="btn btn-outline-secondary btn-sm">⬇️</a>
+            <a href="#"
+    onclick="downloadPdf('${o.order_id}', this)"
+    class="btn btn-outline-secondary btn-sm">⬇️</a>
+
 
             <button class="btn btn-outline-danger btn-sm"
               onclick="deleteOrder('${o.order_id}')">🗑</button>
@@ -426,6 +428,12 @@ document
 
 document.getElementById("sortSelect")
   ?.addEventListener("change", loadOrders);
+
+function downloadPdf(id, btn) {
+  btn.innerText = "⏳";
+  window.location.href = `/api/orders/${id}/print`;
+  setTimeout(() => btn.innerText = "⬇️", 3000);
+}
 
 </script>
 

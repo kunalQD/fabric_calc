@@ -10,8 +10,10 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from reportlab.platypus import Image as RLImage
 from reportlab.lib.units import inch
+from PIL import Image
 
 
+PDF_CACHE = {}
 app = Flask(__name__)
 app.secret_key = "quilt_drapes_secure_key"
 
@@ -149,6 +151,10 @@ def print_order(oid):
     if not is_logged_in():
         return "Unauthorized", 401
 
+    # ✅ ALWAYS define cache_key FIRST
+    cache_key = f"order_pdf:{oid}"
+
+    # ✅ Fetch order
     order = db.orders.find_one({"_id": oid})
     if not order:
         return "Order not found", 404
@@ -157,6 +163,18 @@ def print_order(oid):
         {"_id": ObjectId(order["customer_id"])}
     )
 
+    filename = f"Order_{customer.get('name','').replace(' ','_')}.pdf"
+
+    # ✅ CACHE HIT — RETURN IMMEDIATELY
+    if cache_key in PDF_CACHE:
+        return send_file(
+            io.BytesIO(PDF_CACHE[cache_key]),
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/pdf"
+        )
+
+    # ---------- PDF BUILD STARTS ----------
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -188,7 +206,7 @@ def print_order(oid):
 
     elements.append(Spacer(1, 14))
 
-    # ---------- WINDOW TABLE ----------
+    # ---------- TABLE ----------
     table_data = [[
         "Window", "Stitch", "Lining", "Width", "Height",
         "Panels", "Qty (Mtrs)", "Track (ft)"
@@ -212,16 +230,20 @@ def print_order(oid):
         ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#f1f5f9")),
         ("FONT", (0,0), (-1,0), "Helvetica-Bold"),
         ("ALIGN", (3,1), (-1,-1), "CENTER"),
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-        ("TOPPADDING", (0,0), (-1,-1), 6),
     ]))
 
     elements.append(table)
     elements.append(Spacer(1, 16))
 
-    # ---------- WINDOW IMAGES ----------
+    # ---------- IMAGES (COMPRESSED) ----------
+    from PIL import Image
+
+    MAX_WINDOWS_WITH_IMAGES = 6
+
     for idx, e in enumerate(order.get("entries", []), start=1):
+        if idx > MAX_WINDOWS_WITH_IMAGES:
+            break
+
         imgs = e.get("Images", [])
         if not imgs:
             continue
@@ -232,17 +254,21 @@ def print_order(oid):
         )
         elements.append(Spacer(1, 8))
 
-        row = []
-        rows = []
+        row, rows = [], []
 
         for ref in imgs:
             try:
                 fid = ref.replace("gridfs:", "")
                 f = fs.get(ObjectId(fid))
-                img_data = io.BytesIO(f.read())
 
-                img = RLImage(img_data, width=2.5*inch, height=2.5*inch)
-                img.hAlign = "LEFT"
+                raw = Image.open(io.BytesIO(f.read()))
+                raw.thumbnail((600, 600))
+
+                compressed = io.BytesIO()
+                raw.save(compressed, format="JPEG", quality=65, optimize=True)
+                compressed.seek(0)
+
+                img = RLImage(compressed, width=2.5*inch, height=2.5*inch)
                 row.append(img)
 
                 if len(row) == 3:
@@ -260,11 +286,13 @@ def print_order(oid):
 
         elements.append(Spacer(1, 12))
 
-    # ---------- BUILD ----------
+    # ---------- BUILD & CACHE ----------
     doc.build(elements)
-    buffer.seek(0)
 
-    filename = f"Order_{customer.get('name','').replace(' ','_')}.pdf"
+    pdf_bytes = buffer.getvalue()
+    PDF_CACHE[cache_key] = pdf_bytes
+
+    buffer.seek(0)
 
     return send_file(
         buffer,
@@ -272,6 +300,7 @@ def print_order(oid):
         download_name=filename,
         mimetype="application/pdf"
     )
+
 
 
 # ---------------- IMAGES ----------------
