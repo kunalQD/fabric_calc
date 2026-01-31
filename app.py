@@ -11,6 +11,7 @@ from reportlab.lib import colors
 from reportlab.platypus import Image as RLImage
 from reportlab.lib.units import inch
 from PIL import Image
+from reportlab.platypus import PageBreak, KeepTogether
 
 
 PDF_CACHE = {}
@@ -241,20 +242,34 @@ def print_order(oid):
     MAX_WINDOWS_WITH_IMAGES = 6
 
     for idx, e in enumerate(order.get("entries", []), start=1):
-        if idx > MAX_WINDOWS_WITH_IMAGES:
-            break
 
         imgs = e.get("Images", [])
-        if not imgs:
+        notes = (e.get("Notes") or "").strip()
+
+        if not imgs and not notes:
             continue
 
+        # ---- Window title ----
         elements.append(
-            Paragraph(f"<b>Window {idx}: {e.get('Window','')}</b>",
-                      styles["Heading3"])
+            Paragraph(
+                f"<b>Window {idx}: {e.get('Window','')}</b>",
+                styles["Heading3"]
+            )
         )
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 4))
 
-        row, rows = [], []
+        # ---- Notes ----
+        if notes:
+            elements.append(
+                Paragraph(
+                    f"<i>Tailor Notes:</i> {notes}",
+                    styles["Normal"]
+                )
+            )
+            elements.append(Spacer(1, 6))
+
+        # ---- Images ----
+        row = []
 
         for ref in imgs:
             try:
@@ -262,29 +277,41 @@ def print_order(oid):
                 f = fs.get(ObjectId(fid))
 
                 raw = Image.open(io.BytesIO(f.read()))
-                raw.thumbnail((600, 600))
+                raw.thumbnail((500, 500))
 
                 compressed = io.BytesIO()
-                raw.save(compressed, format="JPEG", quality=65, optimize=True)
+                raw.save(compressed, format="JPEG", quality=60, optimize=True)
                 compressed.seek(0)
 
-                img = RLImage(compressed, width=2.5*inch, height=2.5*inch)
-                row.append(img)
+                row.append(
+                    RLImage(compressed, width=1.8 * inch, height=1.8 * inch)
+                )
 
-                if len(row) == 3:
-                    rows.append(row)
+                if len(row) == 4:
+                    elements.append(
+                        KeepTogether([
+                            Table([row], colWidths=[110] * 4),
+                            Spacer(1, 6)
+                        ])
+                    )
                     row = []
+
             except:
                 continue
 
         if row:
-            rows.append(row)
+            elements.append(
+                KeepTogether([
+                    Table([row], colWidths=[110] * len(row)),
+                    Spacer(1, 8)
+                ])
+            )
 
-        for r in rows:
-            elements.append(Table([r], colWidths=[130]*len(r)))
-            elements.append(Spacer(1, 6))
+        elements.append(Spacer(1, 10))
 
-        elements.append(Spacer(1, 12))
+
+        # ---- Keep everything together + page break ----
+
 
     # ---------- BUILD & CACHE ----------
     doc.build(elements)
@@ -349,15 +376,21 @@ def save_order():
     else:
         cid = str(db.customers.insert_one({**cust, "created_at": datetime.utcnow()}).inserted_id)
 
-    for i, e in enumerate(entries):
-        imgs = request.files.getlist(f"images_{i}")
+    for e in entries:
+        wid = e.get("window_id")
+        imgs = request.files.getlist(f"images_{wid}")
+
         if imgs:
             refs = []
             for img in imgs:
-                fid = fs.put(img, filename=img.filename)
+                fid = fs.put(
+                    img,
+                    filename=img.filename,
+                    content_type=img.content_type
+                )
                 refs.append(f"gridfs:{fid}")
             e["Images"] = refs
-        # else: DO NOT TOUCH existing Images
+
 
 
     order = {
