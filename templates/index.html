@@ -8,6 +8,25 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
+
+  body {
+  background: linear-gradient(135deg,#f8fafc,#eef2f7);
+}
+
+.kpi-card {
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.4);
+}
+
+.order-card {
+  transition: all .25s ease;
+}
+
+.order-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 28px rgba(0,0,0,.12);
+}
+
 body { background:#f4f7f6; font-size:14px; }
 .container-max { max-width:1100px; margin:auto; }
 
@@ -102,17 +121,39 @@ body { background:#f4f7f6; font-size:14px; }
   <div class="col-md-3">
     <label class="form-label">Status</label>
     <select id="orderStatus" class="form-select">
-      <option>Pending</option>
-      <option>Cutting</option>
+      <option>Fabric Order Pending</option>
+      <option>Fabric In Transit</option>
       <option>Stitching</option>
+      <option>Hardware/Material Installation</option>
       <option>Completed</option>
-    </select>
+</select>
+
   </div>
 
   <div class="col-md-3">
     <label class="form-label">Due Date</label>
     <input type="date" id="dueDate" class="form-control">
   </div>
+
+  <div class="col-md-3">
+  <label class="form-label">Tailor</label>
+  <select id="orderTailor" class="form-select">
+    <option value="">Select</option>
+    <option>Dev</option>
+    <option>Dinesh</option>
+  </select>
+</div>
+
+<div class="col-md-3">
+  <label class="form-label">Fitter</label>
+  <select id="orderFitter" class="form-select">
+    <option value="">Select</option>
+    <option>Dev</option>
+    <option>Dinesh</option>
+    <option>Krishna</option>
+  </select>
+</div>
+
 </div>
 </div>
 </div>
@@ -299,6 +340,8 @@ document.addEventListener("DOMContentLoaded",async()=>{
     orderStatus.value=o.status;
     dueDate.value=o.due_date||"";
     entries=o.entries||[];
+    orderTailor.value = o.tailor || "";
+    orderFitter.value = o.fitter || "";
     render();
   }
 });
@@ -503,6 +546,9 @@ async function saveOrder(){
   fd.append("showroom", showroom.value);
   fd.append("status", orderStatus.value);
   fd.append("due_date", dueDate.value);
+  fd.append("tailor", orderTailor.value);
+  fd.append("fitter", orderFitter.value);
+
 
   // 🔴 IMPORTANT: send entries WITHOUT file objects
   const cleanEntries = entries.map(e => ({

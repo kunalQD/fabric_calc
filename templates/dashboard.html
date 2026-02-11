@@ -8,169 +8,101 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
-body { background:#f4f6f9; font-size:14px; }
-.container-max { max-width:1200px; margin:auto; }
+body{background:#f4f6f9;font-size:14px;}
+.container-max{max-width:1400px;margin:auto;}
+.navbar{background:#1f2933;}
 
-.navbar { background:#1f2933; }
-
-/* ---------- KPI CARDS ---------- */
-.kpi-card {
+/* KPI */
+.kpi-card{
   border-radius:18px;
   padding:18px;
   color:#fff;
   box-shadow:0 6px 18px rgba(0,0,0,.12);
 }
-.kpi-title { font-size:13px; opacity:.9 }
-.kpi-value { font-size:26px; font-weight:700 }
+.kpi-title{font-size:13px;opacity:.9}
+.kpi-value{font-size:26px;font-weight:700}
+.kpi-orders{background:linear-gradient(135deg,#2563EB,#1D4ED8);}
+.kpi-pending{background:linear-gradient(135deg,#D97706,#B45309);}
+.kpi-stitching{background:linear-gradient(135deg,#7C3AED,#5B21B6);}
+.kpi-completed{background:linear-gradient(135deg,#10B981,#059669);}
 
-.kpi-orders { background:linear-gradient(135deg,#2563EB,#1D4ED8); }
-.kpi-sqft { background:linear-gradient(135deg,#059669,#047857); }
-.kpi-panels { background:linear-gradient(135deg,#7C3AED,#6D28D9); }
-.kpi-pending { background:linear-gradient(135deg,#D97706,#B45309); }
-.kpi-cutting { background:linear-gradient(135deg,#0891B2,#0E7490); }
-.kpi-stitching { background:linear-gradient(135deg,#4F46E5,#4338CA); }
-.kpi-completed { background:linear-gradient(135deg,#1F2933,#111827); }
+/* Search & Filters */
+.search-bar{max-width:300px}
 
-/* ---------- FILTER PILLS (LEFT SIDE) ---------- */
-.filter-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: #eef2f7;
-  font-size: 13px;
-  cursor: pointer;
-  user-select: none;
-  border: 1px solid #e2e8f0;
-}
-
-.filter-pill input {
-  margin: 0;
-}
-
-
-.status-filter-bar {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.status-filter-bar {
-  margin-top: 6px;
-}
-
-.status-pill {
-  background:#f1f5f9;
-  border:1px solid #e2e8f0;
-}
-
-.order-filters {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.filter-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.filter-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  background: #f1f5f9;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.filter-pill input {
-  accent-color: #ef4444;
-  cursor: pointer;
-}
-
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #eef2f7;
-  font-size: 13px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.status-pill input {
-  margin: 0;
-}
-
-
-.status-check input {
-  margin-right: 6px;
-}
-
-
-/* ---------- ORDER CARDS ---------- */
-.order-card {
-  border-radius:16px;
-  padding:16px;
+/* Kanban */
+.kanban-wrapper{overflow-x:auto;padding-bottom:8px;}
+.kanban-board{display:flex;gap:16px;min-width:1250px;}
+.kanban-column{
+  flex:0 0 270px;
   background:#fff;
-  box-shadow:0 4px 14px rgba(0,0,0,.06);
-  border-left:6px solid #cbd5e1;
-  position:relative;
+  border-radius:16px;
+  padding:14px;
+  box-shadow:0 8px 20px rgba(0,0,0,.06);
 }
-
-.order-pending { border-color:#D97706; }
-.order-cutting { border-color:#0891B2; }
-.order-stitching { border-color:#4F46E5; }
-.order-completed { border-color:#1F2933; }
-
-/* ---------- PILLS ---------- */
-.badge-soft { background:#e5e7eb; color:#111827; }
-.badge-future { background:#e0f2fe; color:#075985; }
-.badge-today { background:#fef3c7; color:#92400e; }
-.badge-overdue { background:#fee2e2; color:#991b1b; }
-
-.status-pill {
-  position:absolute;
-  top:14px;
-  right:14px;
-  padding:6px 12px;
-  border-radius:999px;
-  font-size:12px;
-  font-weight:600;
-  color:#fff;
-}
-.status-pending { background:#D97706; }
-.status-cutting { background:#0891B2; }
-.status-stitching { background:#4F46E5; }
-.status-completed { background:#1F2933; }
-
-/* ---------- FAB ---------- */
-.fab {
-  position:fixed;
-  right:20px;
-  bottom:20px;
-  width:56px;
-  height:56px;
-  border-radius:50%;
-  background:#2563eb;
-  color:#fff;
+.completed-column{background:linear-gradient(#ecfdf5,#d1fae5);}
+.column-header{
   display:flex;
+  justify-content:space-between;
   align-items:center;
-  justify-content:center;
-  font-size:28px;
-  text-decoration:none;
+  margin-bottom:10px;
+}
+.count-badge{
+  background:#1f2933;
+  color:#fff;
+  font-size:11px;
+  padding:3px 8px;
+  border-radius:999px;
+}
+
+/* Cards */
+.kanban-card{
+  background:#f9fafb;
+  border-left:5px solid #cbd5e1;
+  border-radius:12px;
+  padding:10px;
+  margin-bottom:10px;
+  cursor:pointer;
+  transition:.2s;
+}
+.kanban-card:hover{
+  transform:translateY(-2px);
+  box-shadow:0 6px 14px rgba(0,0,0,.1);
+}
+
+/* Status colors */
+.order-fabric-order-pending{border-left-color:#F59E0B;}
+.order-fabric-in-transit{border-left-color:#0EA5E9;}
+.order-stitching{border-left-color:#7C3AED;}
+.order-hardware-material-installation{border-left-color:#8B5CF6;}
+.order-completed{border-left-color:#10B981;}
+
+/* Tailor highlight */
+.tailor-highlight-dev{border:2px solid #2563eb;}
+.tailor-highlight-dinesh{border:2px solid #f97316;}
+
+/* Overdue glow */
+.order-urgent{animation:pulseGlow 1.8s infinite;}
+@keyframes pulseGlow{
+  0%{box-shadow:0 0 0 0 rgba(220,38,38,.5);}
+  70%{box-shadow:0 0 0 12px rgba(220,38,38,0);}
+  100%{box-shadow:0 0 0 0 rgba(220,38,38,0);}
+}
+
+/* Mobile stacking */
+@media(max-width:768px){
+  .kanban-board{flex-direction:column;min-width:100%;}
+  .kanban-column{flex:1 1 auto;}
+}
+
+.fab{
+  position:fixed;right:20px;bottom:20px;
+  width:56px;height:56px;border-radius:50%;
+  background:#2563eb;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-size:28px;text-decoration:none;
 }
 </style>
 </head>
-
 <body>
 
 <nav class="navbar navbar-dark px-4">
@@ -180,261 +112,200 @@ body { background:#f4f6f9; font-size:14px; }
 
 <div class="container-max px-3 mt-4">
 
+<!-- Search & Filters -->
+<div class="d-flex gap-3 align-items-center mb-3 flex-wrap">
+  <input id="searchInput" class="form-control search-bar" placeholder="Search name / phone / showroom">
+
+  <select id="tailorFilter" class="form-select" style="max-width:160px">
+    <option value="">All Tailors</option>
+    <option>Dev</option>
+    <option>Dinesh</option>
+  </select>
+
+  <select id="fitterFilter" class="form-select" style="max-width:160px">
+    <option value="">All Fitters</option>
+    <option>Dev</option>
+    <option>Dinesh</option>
+    <option>Krishna</option>
+  </select>
+</div>
+
 <!-- KPI -->
 <div class="row g-3 mb-4">
-  <div class="col-6 col-md-2"><div class="kpi-card kpi-orders"><div class="kpi-title">Orders</div><div id="kpiOrders" class="kpi-value">0</div></div></div>
-  <div class="col-6 col-md-2"><div class="kpi-card kpi-sqft"><div class="kpi-title">SQFT</div><div id="kpiSqft" class="kpi-value">0</div></div></div>
-  <div class="col-6 col-md-2"><div class="kpi-card kpi-panels"><div class="kpi-title">Panels</div><div id="kpiPanels" class="kpi-value">0</div></div></div>
-  <div class="col-6 col-md-2"><div class="kpi-card kpi-pending"><div class="kpi-title">Pending</div><div id="kpiPending" class="kpi-value">0</div></div></div>
-  <div class="col-6 col-md-2"><div class="kpi-card kpi-cutting"><div class="kpi-title">Cutting</div><div id="kpiCutting" class="kpi-value">0</div></div></div>
-  <div class="col-6 col-md-2"><div class="kpi-card kpi-stitching"><div class="kpi-title">Stitching</div><div id="kpiStitching" class="kpi-value">0</div></div></div>
-</div>
-
-<div class="mb-3">
-
-  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
-
-    <!-- LEFT : Filters -->
-    <div>
-      <h5 class="fw-bold mb-2">Orders</h5>
-
-      <div class="order-filters">
-
-        <!-- SHOWROOM FILTER -->
-        <div class="filter-group" id="showroomFilters">
-          <label class="filter-pill">
-            <input type="checkbox" value="Anna Nagar" checked>
-            Anna Nagar
-          </label>
-
-          <label class="filter-pill">
-            <input type="checkbox" value="Valasaravakkam" checked>
-            Valasaravakkam
-          </label>
-        </div>
-
-        <!-- STATUS FILTER -->
-        <div class="filter-group" id="statusFilters">
-          <label class="filter-pill">
-            <input type="checkbox" value="Pending" checked>
-            Pending
-          </label>
-
-          <label class="filter-pill">
-            <input type="checkbox" value="Cutting" checked>
-            Cutting
-          </label>
-
-          <label class="filter-pill">
-            <input type="checkbox" value="Stitching">
-            Stitching
-          </label>
-
-          <label class="filter-pill">
-            <input type="checkbox" value="Completed">
-            Completed
-          </label>
-        </div>
-
-      </div>
+  <div class="col-md-3">
+    <div class="kpi-card kpi-orders">
+      <div class="kpi-title">Orders</div>
+      <div id="kpiOrders" class="kpi-value">0</div>
     </div>
-
-    <!-- RIGHT : Sort -->
-    <div class="d-flex align-items-center gap-2">
-      <label class="fw-semibold small mb-0">Sort by</label>
-      <select id="sortSelect" class="form-select form-select-sm w-auto">
-        <option value="due_asc">Due Date ↑ (Earliest)</option>
-        <option value="due_desc">Due Date ↓ (Latest)</option>
-        <option value="status_asc">Status (Pending → Completed)</option>
-        <option value="status_desc">Status (Completed → Pending)</option>
-      </select>
-    </div>
-
   </div>
-
+  <div class="col-md-3">
+    <div class="kpi-card kpi-pending">
+      <div class="kpi-title">Fabric Order Pending</div>
+      <div id="kpiFabricPending" class="kpi-value">0</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi-card kpi-stitching">
+      <div class="kpi-title">Stitching</div>
+      <div id="kpiStitching" class="kpi-value">0</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi-card kpi-completed">
+      <div class="kpi-title">Completed</div>
+      <div id="kpiCompleted" class="kpi-value">0</div>
+    </div>
+  </div>
 </div>
 
-
-<div class="row g-3" id="orders"></div>
+<div class="kanban-wrapper">
+<div class="kanban-board" id="kanbanBoard"></div>
+</div>
 
 </div>
 
 <a href="/calculator" class="fab">+</a>
 
 <script>
-function daysBetween(a,b){return Math.ceil((b-a)/(1000*60*60*24))}
+const STATUSES=[
+"Fabric Order Pending",
+"Fabric In Transit",
+"Stitching",
+"Hardware/Material Installation",
+"Completed"
+];
 
 async function loadKPIs(){
-  const d = await (await fetch("/api/dashboard/kpis")).json();
-  kpiOrders.innerText = d.orders;
-  kpiSqft.innerText = d.sqft;
-  kpiPanels.innerText = d.panels;
-  kpiPending.innerText = d.status.Pending;
-  kpiCutting.innerText = d.status.Cutting;
-  kpiStitching.innerText = d.status.Stitching;
+  const d=await(await fetch("/api/dashboard/kpis")).json();
+  kpiOrders.innerText=d.orders||0;
+  kpiFabricPending.innerText=d.fabric_pending||0;
+  kpiStitching.innerText=d.stitching||0;
+  kpiCompleted.innerText=d.completed||0;
 }
-
-
 
 async function loadOrders(){
-  const checkedStatuses = Array.from(
-    document.querySelectorAll('#statusFilters input:checked')
-  ).map(cb => cb.value);
-
-  if (checkedStatuses.length === 0) {
-    orders.innerHTML = `
-      <div class="text-muted text-center py-5">
-        No status selected
-      </div>`;
-    return;
-  }
-
-  const showroomChecked = Array.from(
-    document.querySelectorAll('#showroomFilters input:checked')
-  ).map(cb => cb.value);
-
-  console.log("Showrooms:", showroomChecked);
-  console.log("Statuses:", checkedStatuses);
-
-  const qs = new URLSearchParams();
-  qs.set("status", checkedStatuses.join(","));
-
-  if (showroomChecked.length) {
-    qs.set("showroom", showroomChecked.join(","));
-  }
-
-  const res = await fetch(`/api/orders/list?${qs.toString()}`);
-
-  if (!res.ok) {
-    console.error("Order fetch failed");
-    return;
-  }
-
-  const data = await res.json();
-
-const sortedData = sortOrders(data); // ✅ APPLY SORT HERE
-renderOrders(sortedData);
-
-              // ✅ now data exists
+  const res=await fetch("/api/orders/list");
+  const data=await res.json();
+  renderBoard(data);
 }
 
-function sortOrders(data) {
-  const sortBy = document.getElementById("sortSelect")?.value;
+function renderBoard(data){
+  const board=document.getElementById("kanbanBoard");
+  board.innerHTML="";
+  const search=searchInput.value.toLowerCase();
+  const tailorVal=tailorFilter.value;
+  const fitterVal=fitterFilter.value;
+  const today=new Date();
+  let firstUrgent=null;
+  let tailorCount={};
 
-  const statusRank = {
-    "Pending": 1,
-    "Cutting": 2,
-    "Stitching": 3,
-    "Completed": 4
-  };
+  STATUSES.forEach(status=>{
+    const statusClass=status.toLowerCase().replaceAll(" ","-").replaceAll("/","-");
 
-  return [...data].sort((a, b) => {
-    if (sortBy === "due_asc") {
-      return new Date(a.due_date || 0) - new Date(b.due_date || 0);
-    }
+    const filtered=data.filter(o=>{
+      return o.status===status &&
+      (!search ||
+       o.name?.toLowerCase().includes(search) ||
+       o.phone?.includes(search) ||
+       o.showroom?.toLowerCase().includes(search)) &&
+      (!tailorVal || o.tailor===tailorVal) &&
+      (!fitterVal || o.fitter===fitterVal);
+    });
 
-    if (sortBy === "due_desc") {
-      return new Date(b.due_date || 0) - new Date(a.due_date || 0);
-    }
+    const col=document.createElement("div");
+    col.className="kanban-column"+(status==="Completed"?" completed-column":"");
+    col.dataset.status=status;
 
-    if (sortBy === "status_asc") {
-      return (statusRank[a.status] || 99) - (statusRank[b.status] || 99);
-    }
+    col.innerHTML=`
+      <div class="column-header">
+        <h6>${status}</h6>
+        <span class="count-badge">${filtered.length}</span>
+      </div>
+      <div class="kanban-drop"></div>
+    `;
 
-    if (sortBy === "status_desc") {
-      return (statusRank[b.status] || 99) - (statusRank[a.status] || 99);
-    }
+    const drop=col.querySelector(".kanban-drop");
 
-    return 0;
-  });
-}
-
-
-function renderOrders(data){
-  const today = new Date();
-
-  orders.innerHTML = data.map(o => {
-    const due = o.due_date ? new Date(o.due_date) : null;
-    let badgeClass = "badge-future";
-    let badgeText = "No due date";
-
-    if (due) {
-      const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
-      if (diff < 0) {
-        badgeClass = "badge-overdue";
-        badgeText = `Overdue ${Math.abs(diff)}d`;
-      } else if (diff === 0) {
-        badgeClass = "badge-today";
-        badgeText = "Due Today";
-      } else {
-        badgeText = `Due in ${diff} days`;
+    filtered.forEach(o=>{
+      if(o.tailor){
+        tailorCount[o.tailor]=(tailorCount[o.tailor]||0)+1;
       }
-    }
 
-    return `
-      <div class="col-md-6">
-        <div class="order-card order-${o.status.toLowerCase()}">
+      let urgent="";
+      if(o.due_date){
+        const diff=Math.ceil((new Date(o.due_date)-today)/(1000*60*60*24));
+        if(diff<0){urgent="order-urgent";if(!firstUrgent) firstUrgent=o.order_id;}
+      }
 
-          <span class="status-pill status-${o.status.toLowerCase()}">
-            ${o.status}
-          </span>
+      const tailorClass=o.tailor?
+        "tailor-highlight-"+o.tailor.toLowerCase():"";
 
-          <div class="fw-bold">${o.name || "-"}</div>
-          <div class="text-muted small">${o.phone || ""}</div>
+      drop.innerHTML+=`
+        <div class="kanban-card order-${statusClass} ${urgent} ${tailorClass}"
+             draggable="true"
+             onclick="openOrder('${o.order_id}')"
+             ondragstart="drag(event)"
+             data-id="${o.order_id}">
+          <strong>${o.name}</strong><br>
+          ${o.item_count} windows<br>
+          ${o.showroom}
 
-          <div class="my-2">
-            <span class="badge badge-soft">${o.item_count} windows</span>
-            <span class="badge badge-soft">${o.panels} panels</span>
-            <span class="badge badge-soft">${o.showroom || "—"}</span>
-            <span class="badge ${badgeClass}">${badgeText}</span>
+          <div class="mt-2 small text-muted">
+            👕 Tailor: <strong>${o.tailor||"-"}</strong><br>
+            🔧 Fitter: <strong>${o.fitter||"-"}</strong>
           </div>
 
-          <div class="d-flex gap-2 mt-3">
-            <a href="/calculator?order_id=${o.order_id}"
-               class="btn btn-outline-primary btn-sm">✏️</a>
-
-            <a href="#"
-    onclick="downloadPdf('${o.order_id}', this)"
-    class="btn btn-outline-secondary btn-sm">⬇️</a>
-
-
-            <button class="btn btn-outline-danger btn-sm"
-              onclick="deleteOrder('${o.order_id}')">🗑</button>
+          <div class="mt-2">
+            <button onclick="event.stopPropagation();sendWhatsApp('${o.phone}')"
+              class="btn btn-success btn-sm py-0 px-2">WA</button>
           </div>
-        </div>
-      </div>`;
-  }).join("");
-}
+        </div>`;
+    });
 
-
-
-async function deleteOrder(id){
-  if(!confirm("Delete this order?")) return;
-  await fetch(`/api/orders/${id}`,{method:"DELETE"});
-  loadKPIs();loadOrders();
-}
-
-loadKPIs();loadOrders();
-
-document.querySelectorAll('#statusFilters input').forEach(cb => {
-  cb.addEventListener('change', () => {
-    loadOrders();
+    enableDrop(drop);
+    board.appendChild(col);
   });
-});
 
-document
-  .querySelectorAll('#statusFilters input, #showroomFilters input')
-  .forEach(cb => cb.addEventListener('change', loadOrders));
+  console.log("Tailor workload:",tailorCount);
 
-document.getElementById("sortSelect")
-  ?.addEventListener("change", loadOrders);
-
-function downloadPdf(id, btn) {
-  btn.innerText = "⏳";
-  window.location.href = `/api/orders/${id}/print`;
-  setTimeout(() => btn.innerText = "⬇️", 3000);
+  if(firstUrgent){
+    setTimeout(()=>{
+      document.querySelector(".order-urgent")?.scrollIntoView({behavior:"smooth",block:"center"});
+    },500);
+  }
 }
 
+function enableDrop(col){
+  col.ondragover=e=>e.preventDefault();
+  col.ondrop=async e=>{
+    e.preventDefault();
+    const id=e.dataTransfer.getData("id");
+    const newStatus=col.parentElement.dataset.status;
+
+    await fetch(`/api/orders/${id}/status`,{
+      method:"PUT",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({status:newStatus})
+    });
+
+    loadKPIs();
+    loadOrders();
+  };
+}
+
+function drag(ev){ev.dataTransfer.setData("id",ev.target.dataset.id);}
+function openOrder(id){location.href=`/calculator?order_id=${id}`;}
+function sendWhatsApp(phone){
+  const clean=phone.replace(/\D/g,'');
+  window.open(`https://wa.me/91${clean}`,"_blank");
+}
+
+searchInput.addEventListener("input",loadOrders);
+tailorFilter.addEventListener("change",loadOrders);
+fitterFilter.addEventListener("change",loadOrders);
+
+loadKPIs();
+loadOrders();
 </script>
 
 </body>

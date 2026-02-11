@@ -23,7 +23,14 @@ client = MongoClient(MONGO_URI)
 db = client["fabric_app"]
 fs = GridFS(db)
 
-STATUSES = ["Pending", "Cutting", "Stitching", "Completed"]
+STATUSES = [
+    "Fabric Order Pending",
+    "Fabric In Transit",
+    "Stitching",
+    "Hardware/Material Installation",
+    "Completed"
+]
+
 
 def is_logged_in():
     return session.get("logged_in")
@@ -39,24 +46,36 @@ def dashboard_kpis():
 
     orders = list(db.orders.find({}))
 
-    total_sqft = 0
-    total_panels = 0
-    status_count = {s: 0 for s in STATUSES}
+    total_orders = len(orders)
+    stitching = 0
+    completed = 0
+    fabric_pending = 0
 
     for o in orders:
-        status = o.get("status", "Pending")
-        status_count[status] += 1
 
-        for e in o.get("entries", []):
-            total_sqft += float(e.get("SQFT", 0))
-            total_panels += int(e.get("Panels", 0))
+        status = o.get("status", "")
+
+        # 🔄 Map old values
+        if status == "Pending":
+            status = "Fabric Order Pending"
+        elif status == "Cutting":
+            status = "Fabric In Transit"
+
+        if status == "Fabric Order Pending":
+            fabric_pending += 1
+        elif status == "Stitching":
+            stitching += 1
+        elif status == "Completed":
+            completed += 1
 
     return jsonify({
-        "orders": len(orders),
-        "sqft": round(total_sqft, 2),
-        "panels": total_panels,
-        "status": status_count
+        "orders": total_orders,
+        "fabric_pending": fabric_pending,
+        "stitching": stitching,
+        "completed": completed
     })
+
+
 
 
 @app.route("/api/orders/<oid>/pdf")
@@ -119,8 +138,17 @@ def print_order_pdf(oid):
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        if request.form["username"] == "adminqd" and request.form["password"] == "adminQD":
+        users = {
+            "adminqd": {"password":"adminQD","role":"admin"},
+            "staffqd": {"password":"staffQD","role":"staff"}
+        }
+
+        u = request.form["username"]
+        p = request.form["password"]
+
+        if u in users and users[u]["password"] == p:
             session["logged_in"] = True
+            session["role"] = users[u]["role"]
             return redirect("/dashboard")
         return render_template("login.html", error="Invalid credentials")
     return render_template("login.html")
@@ -135,7 +163,10 @@ def logout():
 
 @app.route("/")
 def home():
+    if not is_logged_in():
+        return redirect("/login")
     return redirect("/dashboard")
+
 
 @app.route("/dashboard")
 def dashboard():
@@ -366,6 +397,8 @@ def save_order():
         "name": request.form["name"],
         "phone": request.form["phone"],
         "address": request.form["address"],
+        "tailor": request.form.get("tailor",""),
+        "fitter": request.form.get("fitter",""),
         "showroom": request.form["showroom"]
     }
 
@@ -471,6 +504,8 @@ def update_order(oid):
         "name": request.form["name"],
         "phone": request.form["phone"],
         "address": request.form["address"],
+        "tailor": request.form.get("tailor", order.get("tailor","")),
+        "fitter": request.form.get("fitter", order.get("fitter","")),
         "showroom": request.form["showroom"]
     }
 
@@ -496,14 +531,17 @@ def update_order(oid):
 
 
     db.orders.update_one(
-        {"_id": oid},
-        {"$set": {
-            "entries": entries,
-            "status": request.form.get("status"),
-            "due_date": request.form.get("due_date"),
-            "updated_at": datetime.utcnow()
-        }}
-    )
+    {"_id": oid},
+    {"$set": {
+        "entries": entries,
+        "status": request.form.get("status"),
+        "due_date": request.form.get("due_date"),
+        "tailor": request.form.get("tailor", order.get("tailor","")),
+        "fitter": request.form.get("fitter", order.get("fitter","")),
+        "updated_at": datetime.utcnow()
+    }}
+)
+
     return jsonify({"status": "updated"})
 
 # ---------------- DELETE ORDER ----------------
@@ -511,6 +549,10 @@ def update_order(oid):
 @app.route("/api/orders/<oid>", methods=["DELETE"])
 def delete_order(oid):
     if not is_logged_in(): return "Unauthorized", 401
+
+    if session.get("role") != "admin":
+        return jsonify({"error":"Not allowed"}), 403
+
 
     order = db.orders.find_one({"_id": oid})
     if not order:
@@ -541,7 +583,7 @@ def list_orders():
 
     q = {}
 
-    # ✅ STATUS FILTER (orders collection)
+    # ✅ If status filter is still sent from frontend, support it
     if status:
         q["status"] = {"$in": status.split(",")}
 
@@ -560,12 +602,27 @@ def list_orders():
         if not cust:
             continue
 
-        # ✅ SHOWROOM FILTER (customer collection)
+        # ✅ SHOWROOM FILTER
         if showroom:
             allowed = showroom.split(",")
             if cust.get("showroom") not in allowed:
                 continue
 
+        # 🔄 AUTO-MAP OLD STATUS VALUES
+        raw_status = o.get("status", "")
+
+        if raw_status == "Pending":
+            mapped_status = "Fabric Order Pending"
+        elif raw_status == "Cutting":
+            mapped_status = "Fabric In Transit"
+        elif raw_status == "Stitching":
+            mapped_status = "Stitching"
+        elif raw_status == "Completed":
+            mapped_status = "Completed"
+        else:
+            mapped_status = raw_status  # already new format
+
+        # 🔹 Calculate totals
         sqft = 0
         panels = 0
 
@@ -577,17 +634,85 @@ def list_orders():
             "order_id": o["_id"],
             "name": cust.get("name"),
             "phone": cust.get("phone"),
-            "status": o.get("status", "Pending"),
+            "status": mapped_status,
             "created_at": o.get("created_at"),
             "updated_at": o.get("updated_at"),
             "due_date": o.get("due_date"),
             "showroom": cust.get("showroom", ""),
+            "tailor": o.get("tailor",""),
+            "fitter": o.get("fitter",""),
             "item_count": len(o.get("entries") or []),
             "panels": panels,
             "sqft": round(sqft, 2)
         })
 
     return jsonify(out)
+
+@app.route("/api/orders/<oid>/status", methods=["PUT"])
+def update_order_status(oid):
+    if not is_logged_in():
+        return "Unauthorized", 401
+
+    new_status = request.json.get("status")
+
+    if new_status not in STATUSES:
+        return jsonify({"error": "Invalid status"}), 400
+
+    db.orders.update_one(
+        {"_id": oid},
+        {"$set": {
+            "status": new_status,
+            "updated_at": datetime.utcnow()
+        }}
+    )
+
+    return jsonify({"status": "updated"})
+
+@app.route("/api/analytics/stages")
+def stage_analytics():
+    if not is_logged_in():
+        return "Unauthorized", 401
+
+    pipeline = [
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+    ]
+
+    result = list(db.orders.aggregate(pipeline))
+
+    return jsonify(result)
+
+@app.route("/api/analytics/daily-assignments")
+def daily_assignments():
+    if not is_logged_in():
+        return "Unauthorized", 401
+
+    today = datetime.utcnow().date()
+
+    orders = list(db.orders.find({}))
+
+    summary = {
+        "tailors": {},
+        "fitters": {}
+    }
+
+    for o in orders:
+        created = o.get("created_at")
+        if not created:
+            continue
+
+        if created.date() != today:
+            continue
+
+        t = o.get("tailor", "")
+        f = o.get("fitter", "")
+
+        if t:
+            summary["tailors"][t] = summary["tailors"].get(t, 0) + 1
+
+        if f:
+            summary["fitters"][f] = summary["fitters"].get(f, 0) + 1
+
+    return jsonify(summary)
 
 
 
