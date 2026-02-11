@@ -714,6 +714,163 @@ def daily_assignments():
 
     return jsonify(summary)
 
+@app.route("/billing")
+def billing_page():
+    if not is_logged_in() or session.get("role") != "admin":
+        return "Unauthorized", 403
+    return render_template("billing.html")
+
+@app.route("/api/billing")
+def billing_data():
+    if not is_logged_in() or session.get("role") != "admin":
+        return "Unauthorized", 403
+
+    orders = list(db.orders.find({}))
+    print("Total Orders:", len(orders))
+
+    result = []
+
+    for o in orders:
+
+        cust = db.customers.find_one({"_id": o.get("customer_id")})
+        if not cust:
+            try:
+                cust = db.customers.find_one(
+                    {"_id": ObjectId(o.get("customer_id"))}
+                )
+            except:
+                cust = None
+
+        if not cust:
+            continue
+
+        tailor = cust.get("tailor", "")
+        fitter = cust.get("fitter", "")
+
+        stitching_total = 0
+        fitting_total = 0
+        stitching_breakup = []
+        fitting_breakup = []
+
+        for e in o.get("entries", []):
+
+            stitch_type = (e.get("Stitch") or "").strip()
+
+            try:
+                panels = int(float(e.get("Panels") or 0))
+            except:
+                panels = 0
+
+            try:
+                sqft = float(e.get("SQFT") or 0)
+            except:
+                sqft = 0
+
+            window_name = (e.get("Window") or "").strip()
+
+            # -------- FITTING --------
+            if window_name:
+                if "Double" in window_name:
+                    qty = 1
+                    rate = 200
+                else:
+                    qty = 1
+                    rate = 150
+
+                amount = qty * rate
+                fitting_total += amount
+
+                fitting_breakup.append({
+                    "type": window_name,
+                    "qty": qty,
+                    "rate": rate,
+                    "amount": amount
+                })
+
+            # -------- STITCHING --------
+            if tailor == "Dev":
+
+                if stitch_type == "Pleated":
+                    rate = 90
+                    amount = panels * rate
+
+                elif stitch_type == "Eyelet":
+                    rate = 130
+                    amount = panels * rate
+
+                elif stitch_type == "Ripple":
+                    rate = 120
+                    amount = panels * rate
+
+                elif "Roman" in stitch_type:
+                    rate = 125
+                    amount = sqft * rate
+
+                else:
+                    rate = 0
+                    amount = 0
+
+            elif tailor == "Dinesh":
+
+                if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
+                    rate = 90
+                    amount = panels * rate
+
+                elif "Roman" in stitch_type:
+                    rate = 100
+                    amount = sqft * rate
+
+                else:
+                    rate = 0
+                    amount = 0
+
+            else:
+                rate = 0
+                amount = 0
+
+            if amount > 0:
+                stitching_total += amount
+                stitching_breakup.append({
+                    "type": stitch_type,
+                    "qty": panels if rate not in [125, 100] else sqft,
+                    "rate": rate,
+                    "amount": amount
+                })
+
+        result.append({
+            "order_id": str(o["_id"]),
+            "customer": str(cust.get("name", "")),
+            "tailor": str(tailor),
+            "fitter": str(fitter),
+            "stitching_total": float(round(stitching_total, 2)),
+            "fitting_total": float(round(fitting_total, 2)),
+            "grand_total": float(round(stitching_total + fitting_total, 2)),
+            "payment_status": str(o.get("payment_status", "Pending")),
+            "stitching_breakup": stitching_breakup,
+            "fitting_breakup": fitting_breakup
+        })
+
+    return jsonify(result)
+
+
+@app.route("/calendar")
+def calendar_view():
+    if not is_logged_in():
+        return redirect("/login")
+    return render_template("calendar.html")
+
+
+@app.route("/api/billing/<oid>/mark-paid", methods=["PUT"])
+def mark_paid(oid):
+    if not is_logged_in() or session.get("role") != "admin":
+        return "Unauthorized", 403
+
+    db.orders.update_one(
+        {"_id": oid},
+        {"$set": {"payment_status": "Paid"}}
+    )
+
+    return jsonify({"status": "updated"})
 
 
 # ---------------- RUN ----------------

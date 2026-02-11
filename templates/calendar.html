@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Installation Calendar – Quilt & Drapes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+
+<style>
+body{
+  background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+  padding:30px;
+  font-family:Arial;
+}
+
+.calendar-card{
+  background:#fff;
+  border-radius:18px;
+  padding:25px;
+  box-shadow:0 12px 30px rgba(0,0,0,.08);
+}
+
+h4{
+  margin-bottom:20px;
+  font-weight:600;
+}
+
+.fc-daygrid-day:hover{
+  background:#f3f4f6;
+  cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<div class="calendar-card">
+<h4>Installation Calendar</h4>
+<div id="calendar"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded',async()=>{
+const res=await fetch("/api/orders/list");
+const orders=await res.json();
+
+const events=orders.map(o=>({
+title:o.name+" ("+o.status+")",
+start:o.due_date,
+color:o.status==="Completed"?"#16a34a":
+      o.status==="Stitching"?"#7C3AED":
+      o.status==="Fabric Order Pending"?"#F59E0B":
+      o.status==="Hardware/Material Installation"?"#8B5CF6":
+      "#0EA5E9"
+}));
+
+new FullCalendar.Calendar(document.getElementById('calendar'),{
+initialView:'dayGridMonth',
+events:events,
+height:"auto"
+}).render();
+});
+</script>
+
+</body>
+</html>

@@ -8,38 +8,74 @@
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
-body{background:#f4f6f9;font-size:14px;}
-.container-max{max-width:1400px;margin:auto;}
-.navbar{background:#1f2933;}
+body{
+  background:linear-gradient(180deg,#f8fafc 0%, #eef2f7 100%);
+  font-size:14px;
+}
+
+/* Navbar */
+.navbar{
+  background:#1f2933;
+  box-shadow:0 4px 12px rgba(0,0,0,.2);
+}
 
 /* KPI */
 .kpi-card{
-  border-radius:18px;
-  padding:18px;
+  border-radius:16px;
+  padding:16px;
   color:#fff;
-  box-shadow:0 6px 18px rgba(0,0,0,.12);
+  box-shadow:0 6px 18px rgba(0,0,0,.15);
 }
-.kpi-title{font-size:13px;opacity:.9}
-.kpi-value{font-size:26px;font-weight:700}
 .kpi-orders{background:linear-gradient(135deg,#2563EB,#1D4ED8);}
 .kpi-pending{background:linear-gradient(135deg,#D97706,#B45309);}
 .kpi-stitching{background:linear-gradient(135deg,#7C3AED,#5B21B6);}
 .kpi-completed{background:linear-gradient(135deg,#10B981,#059669);}
 
-/* Search & Filters */
-.search-bar{max-width:300px}
-
-/* Kanban */
-.kanban-wrapper{overflow-x:auto;padding-bottom:8px;}
-.kanban-board{display:flex;gap:16px;min-width:1250px;}
-.kanban-column{
-  flex:0 0 270px;
+/* Filters */
+.filter-card{
   background:#fff;
-  border-radius:16px;
-  padding:14px;
-  box-shadow:0 8px 20px rgba(0,0,0,.06);
+  border-radius:14px;
+  padding:16px;
+  box-shadow:0 4px 14px rgba(0,0,0,.05);
 }
-.completed-column{background:linear-gradient(#ecfdf5,#d1fae5);}
+
+/* Kanban Board */
+.kanban-board{
+  display:flex;
+  gap:16px;
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  padding-bottom:10px;
+}
+
+.kanban-column{
+  min-width:300px;
+  border-radius:18px;
+  padding:14px;
+  max-height:75vh;
+  overflow-y:auto;
+  color:#fff;
+  scroll-snap-align:start;
+  position:relative;
+  background-size:200% 200%;
+  animation:gradientMove 8s ease infinite;
+}
+
+/* Gradient animation */
+@keyframes gradientMove{
+  0%{background-position:0% 50%;}
+  50%{background-position:100% 50%;}
+  100%{background-position:0% 50%;}
+}
+
+/* Column Colors */
+.col-pending{background:linear-gradient(135deg,#F59E0B,#B45309,#FBBF24);}
+.col-transit{background:linear-gradient(135deg,#0EA5E9,#0369A1,#38BDF8);}
+.col-stitching{background:linear-gradient(135deg,#7C3AED,#5B21B6,#A78BFA);}
+.col-install{background:linear-gradient(135deg,#8B5CF6,#6D28D9,#C4B5FD);}
+.col-completed{background:linear-gradient(135deg,#10B981,#047857,#6EE7B7);}
+
+/* Column header */
 .column-header{
   display:flex;
   justify-content:space-between;
@@ -47,120 +83,116 @@ body{background:#f4f6f9;font-size:14px;}
   margin-bottom:10px;
 }
 .count-badge{
-  background:#1f2933;
+  background:#111827;
   color:#fff;
-  font-size:11px;
-  padding:3px 8px;
+  font-size:12px;
+  padding:4px 8px;
   border-radius:999px;
+}
+
+/* Collapse button */
+.collapse-btn{
+  background:rgba(255,255,255,0.3);
+  border:none;
+  color:#fff;
+  font-size:12px;
+  padding:3px 8px;
+  border-radius:6px;
 }
 
 /* Cards */
 .kanban-card{
-  background:#f9fafb;
-  border-left:5px solid #cbd5e1;
-  border-radius:12px;
-  padding:10px;
-  margin-bottom:10px;
+  background:#ffffff;
+  border-radius:14px;
+  padding:12px;
+  margin-bottom:12px;
   cursor:pointer;
   transition:.2s;
+  color:#111827;
+  box-shadow:0 4px 10px rgba(0,0,0,.15);
 }
 .kanban-card:hover{
-  transform:translateY(-2px);
-  box-shadow:0 6px 14px rgba(0,0,0,.1);
+  transform:translateY(-3px);
+  box-shadow:0 12px 24px rgba(0,0,0,.35);
 }
 
-/* Status colors */
-.order-fabric-order-pending{border-left-color:#F59E0B;}
-.order-fabric-in-transit{border-left-color:#0EA5E9;}
-.order-stitching{border-left-color:#7C3AED;}
-.order-hardware-material-installation{border-left-color:#8B5CF6;}
-.order-completed{border-left-color:#10B981;}
-
-/* Tailor highlight */
-.tailor-highlight-dev{border:2px solid #2563eb;}
-.tailor-highlight-dinesh{border:2px solid #f97316;}
-
-/* Overdue glow */
-.order-urgent{animation:pulseGlow 1.8s infinite;}
-@keyframes pulseGlow{
-  0%{box-shadow:0 0 0 0 rgba(220,38,38,.5);}
-  70%{box-shadow:0 0 0 12px rgba(220,38,38,0);}
-  100%{box-shadow:0 0 0 0 rgba(220,38,38,0);}
+/* Dragging shadow */
+.kanban-card.dragging{
+  opacity:0.6;
+  transform:rotate(2deg);
+  box-shadow:0 16px 40px rgba(0,0,0,.4);
 }
 
-/* Mobile stacking */
-@media(max-width:768px){
-  .kanban-board{flex-direction:column;min-width:100%;}
-  .kanban-column{flex:1 1 auto;}
+/* Overdue */
+.order-urgent{
+  border:2px solid #dc2626;
+  background:#fff1f2;
 }
 
+/* Floating button */
 .fab{
-  position:fixed;right:20px;bottom:20px;
-  width:56px;height:56px;border-radius:50%;
-  background:#2563eb;color:#fff;
-  display:flex;align-items:center;justify-content:center;
-  font-size:28px;text-decoration:none;
+  position:fixed;
+  right:20px;
+  bottom:20px;
+  width:56px;
+  height:56px;
+  border-radius:50%;
+  background:#2563eb;
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:28px;
+  text-decoration:none;
+  box-shadow:0 8px 20px rgba(0,0,0,.25);
 }
 </style>
 </head>
+
 <body>
 
 <nav class="navbar navbar-dark px-4">
   <span class="navbar-brand">Quilt & Drapes</span>
-  <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+  <div class="d-flex align-items-center gap-2">
+    {% if session.get('role') == 'admin' %}
+      <a href="/billing" class="btn btn-warning btn-sm">Billing</a>
+      <a href="/calendar" class="btn btn-outline-light btn-sm">Calendar</a>
+    {% endif %}
+    <span id="refreshIndicator" class="text-success small">● Live</span>
+    <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+  </div>
 </nav>
 
-<div class="container-max px-3 mt-4">
-
-<!-- Search & Filters -->
-<div class="d-flex gap-3 align-items-center mb-3 flex-wrap">
-  <input id="searchInput" class="form-control search-bar" placeholder="Search name / phone / showroom">
-
-  <select id="tailorFilter" class="form-select" style="max-width:160px">
-    <option value="">All Tailors</option>
-    <option>Dev</option>
-    <option>Dinesh</option>
-  </select>
-
-  <select id="fitterFilter" class="form-select" style="max-width:160px">
-    <option value="">All Fitters</option>
-    <option>Dev</option>
-    <option>Dinesh</option>
-    <option>Krishna</option>
-  </select>
-</div>
+<div class="container-fluid px-4 mt-4">
 
 <!-- KPI -->
 <div class="row g-3 mb-4">
-  <div class="col-md-3">
-    <div class="kpi-card kpi-orders">
-      <div class="kpi-title">Orders</div>
-      <div id="kpiOrders" class="kpi-value">0</div>
-    </div>
-  </div>
-  <div class="col-md-3">
-    <div class="kpi-card kpi-pending">
-      <div class="kpi-title">Fabric Order Pending</div>
-      <div id="kpiFabricPending" class="kpi-value">0</div>
-    </div>
-  </div>
-  <div class="col-md-3">
-    <div class="kpi-card kpi-stitching">
-      <div class="kpi-title">Stitching</div>
-      <div id="kpiStitching" class="kpi-value">0</div>
-    </div>
-  </div>
-  <div class="col-md-3">
-    <div class="kpi-card kpi-completed">
-      <div class="kpi-title">Completed</div>
-      <div id="kpiCompleted" class="kpi-value">0</div>
-    </div>
+<div class="col-md-3"><div class="kpi-card kpi-orders">Orders <h4 id="kpiOrders">0</h4></div></div>
+<div class="col-md-3"><div class="kpi-card kpi-pending">Fabric Pending <h4 id="kpiFabricPending">0</h4></div></div>
+<div class="col-md-3"><div class="kpi-card kpi-stitching">Stitching <h4 id="kpiStitching">0</h4></div></div>
+<div class="col-md-3"><div class="kpi-card kpi-completed">Completed <h4 id="kpiCompleted">0</h4></div></div>
+</div>
+
+<!-- Filters -->
+<div class="filter-card mb-4">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    <input id="searchInput" class="form-control" style="max-width:280px"
+      placeholder="Search name / phone / showroom">
+    <select id="tailorFilter" class="form-select" style="max-width:180px">
+      <option value="">All Tailors</option>
+      <option>Dev</option>
+      <option>Dinesh</option>
+    </select>
+    <select id="fitterFilter" class="form-select" style="max-width:180px">
+      <option value="">All Fitters</option>
+      <option>Dev</option>
+      <option>Dinesh</option>
+      <option>Krishna</option>
+    </select>
   </div>
 </div>
 
-<div class="kanban-wrapper">
 <div class="kanban-board" id="kanbanBoard"></div>
-</div>
 
 </div>
 
@@ -174,6 +206,15 @@ const STATUSES=[
 "Hardware/Material Installation",
 "Completed"
 ];
+
+function getColumnClass(status){
+  if(status==="Fabric Order Pending") return "col-pending";
+  if(status==="Fabric In Transit") return "col-transit";
+  if(status==="Stitching") return "col-stitching";
+  if(status==="Hardware/Material Installation") return "col-install";
+  if(status==="Completed") return "col-completed";
+  return "";
+}
 
 async function loadKPIs(){
   const d=await(await fetch("/api/dashboard/kpis")).json();
@@ -192,117 +233,61 @@ async function loadOrders(){
 function renderBoard(data){
   const board=document.getElementById("kanbanBoard");
   board.innerHTML="";
-  const search=searchInput.value.toLowerCase();
-  const tailorVal=tailorFilter.value;
-  const fitterVal=fitterFilter.value;
   const today=new Date();
-  let firstUrgent=null;
-  let tailorCount={};
 
   STATUSES.forEach(status=>{
-    const statusClass=status.toLowerCase().replaceAll(" ","-").replaceAll("/","-");
-
-    const filtered=data.filter(o=>{
-      return o.status===status &&
-      (!search ||
-       o.name?.toLowerCase().includes(search) ||
-       o.phone?.includes(search) ||
-       o.showroom?.toLowerCase().includes(search)) &&
-      (!tailorVal || o.tailor===tailorVal) &&
-      (!fitterVal || o.fitter===fitterVal);
-    });
-
+    const orders=data.filter(o=>o.status===status);
     const col=document.createElement("div");
-    col.className="kanban-column"+(status==="Completed"?" completed-column":"");
-    col.dataset.status=status;
+    col.className="kanban-column "+getColumnClass(status);
 
     col.innerHTML=`
       <div class="column-header">
-        <h6>${status}</h6>
-        <span class="count-badge">${filtered.length}</span>
+        <div><strong>${status}</strong></div>
+        <div>
+          <span class="count-badge">${orders.length}</span>
+          ${status==="Completed" ? '<button class="collapse-btn" onclick="toggleCompleted(this)">Hide</button>' : ''}
+        </div>
       </div>
-      <div class="kanban-drop"></div>
+      <div class="column-content"></div>
     `;
 
-    const drop=col.querySelector(".kanban-drop");
+    const content=col.querySelector(".column-content");
 
-    filtered.forEach(o=>{
-      if(o.tailor){
-        tailorCount[o.tailor]=(tailorCount[o.tailor]||0)+1;
-      }
-
+    orders.forEach(o=>{
       let urgent="";
-      if(o.due_date){
-        const diff=Math.ceil((new Date(o.due_date)-today)/(1000*60*60*24));
-        if(diff<0){urgent="order-urgent";if(!firstUrgent) firstUrgent=o.order_id;}
-      }
-
-      const tailorClass=o.tailor?
-        "tailor-highlight-"+o.tailor.toLowerCase():"";
-
-      drop.innerHTML+=`
-        <div class="kanban-card order-${statusClass} ${urgent} ${tailorClass}"
-             draggable="true"
-             onclick="openOrder('${o.order_id}')"
-             ondragstart="drag(event)"
-             data-id="${o.order_id}">
-          <strong>${o.name}</strong><br>
-          ${o.item_count} windows<br>
-          ${o.showroom}
-
-          <div class="mt-2 small text-muted">
-            👕 Tailor: <strong>${o.tailor||"-"}</strong><br>
-            🔧 Fitter: <strong>${o.fitter||"-"}</strong>
-          </div>
-
-          <div class="mt-2">
-            <button onclick="event.stopPropagation();sendWhatsApp('${o.phone}')"
-              class="btn btn-success btn-sm py-0 px-2">WA</button>
-          </div>
-        </div>`;
+      if(o.due_date && new Date(o.due_date)<today) urgent="order-urgent";
+      content.innerHTML+=`
+      <div class="kanban-card ${urgent}" draggable="true"
+           ondragstart="this.classList.add('dragging')"
+           ondragend="this.classList.remove('dragging')"
+           onclick="location.href='/calculator?order_id=${o.order_id}'">
+        <strong>${o.name}</strong><br>
+        <small>${o.showroom}</small><br>
+        👕 ${o.tailor||'-'} | 🔧 ${o.fitter||'-'}
+      </div>`;
     });
 
-    enableDrop(drop);
     board.appendChild(col);
   });
+}
 
-  console.log("Tailor workload:",tailorCount);
-
-  if(firstUrgent){
-    setTimeout(()=>{
-      document.querySelector(".order-urgent")?.scrollIntoView({behavior:"smooth",block:"center"});
-    },500);
+function toggleCompleted(btn){
+  const col=btn.closest(".kanban-column");
+  const content=col.querySelector(".column-content");
+  if(content.style.display==="none"){
+    content.style.display="block";
+    btn.innerText="Hide";
+  }else{
+    content.style.display="none";
+    btn.innerText="Show";
   }
 }
 
-function enableDrop(col){
-  col.ondragover=e=>e.preventDefault();
-  col.ondrop=async e=>{
-    e.preventDefault();
-    const id=e.dataTransfer.getData("id");
-    const newStatus=col.parentElement.dataset.status;
-
-    await fetch(`/api/orders/${id}/status`,{
-      method:"PUT",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({status:newStatus})
-    });
-
-    loadKPIs();
-    loadOrders();
-  };
-}
-
-function drag(ev){ev.dataTransfer.setData("id",ev.target.dataset.id);}
-function openOrder(id){location.href=`/calculator?order_id=${id}`;}
-function sendWhatsApp(phone){
-  const clean=phone.replace(/\D/g,'');
-  window.open(`https://wa.me/91${clean}`,"_blank");
-}
-
-searchInput.addEventListener("input",loadOrders);
-tailorFilter.addEventListener("change",loadOrders);
-fitterFilter.addEventListener("change",loadOrders);
+/* Live refresh */
+setInterval(()=>{
+ loadOrders();
+ refreshIndicator.classList.toggle("text-success");
+},30000);
 
 loadKPIs();
 loadOrders();

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Admin Billing – Quilt & Drapes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+body{
+  background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+  font-size:14px;
+}
+
+.topbar{
+  background:#1f2933;
+  box-shadow:0 4px 12px rgba(0,0,0,.2);
+}
+
+.container-max{
+  max-width:1300px;
+  margin:auto;
+}
+
+.table-card{
+  background:#fff;
+  border-radius:16px;
+  padding:18px;
+  box-shadow:0 8px 24px rgba(0,0,0,.08);
+}
+
+.table thead{
+  background:#1f2933;
+  color:#fff;
+}
+
+.table tbody tr{
+  transition:.2s;
+}
+
+.table tbody tr:hover{
+  background:#f3f4f6;
+}
+
+.paid-row{
+  background:#ecfdf5 !important;
+}
+
+.bill-btn{
+  font-size:12px;
+  padding:4px 10px;
+  border-radius:8px;
+}
+
+.total-cell{
+  font-weight:600;
+  color:#111827;
+}
+
+.status-badge{
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+}
+
+.status-paid{
+  background:#10B981;
+  color:#fff;
+}
+
+.status-pending{
+  background:#F59E0B;
+  color:#fff;
+}
+</style>
+</head>
+
+<body>
+
+<div class="topbar text-white px-4 py-3 d-flex justify-content-between align-items-center">
+<strong>Admin Billing Panel</strong>
+<div>
+<a href="/dashboard" class="btn btn-outline-light btn-sm me-2">Dashboard</a>
+<a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+</div>
+</div>
+
+<div class="container-max px-3 my-4">
+<div class="table-card">
+<div class="table-responsive">
+<table class="table table-bordered table-sm align-middle mb-0" id="billingTable">
+<thead>
+<tr>
+<th>Customer</th>
+<th>Tailor</th>
+<th>Fitter</th>
+<th>Stitching ₹</th>
+<th>Fitting ₹</th>
+<th>Total ₹</th>
+<th>Status</th>
+<th>Actions</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+</div>
+</div>
+
+<script>
+async function loadBilling(){
+const res=await fetch("/api/billing");
+const data=await res.json();
+const tbody=document.querySelector("#billingTable tbody");
+tbody.innerHTML="";
+
+data.forEach(o=>{
+const paid=o.payment_status==="Paid";
+tbody.innerHTML+=`
+<tr class="${paid?'paid-row':''}">
+<td>${o.customer}</td>
+<td>${o.tailor||'-'}</td>
+<td>${o.fitter||'-'}</td>
+<td>${o.stitching_total}</td>
+<td>${o.fitting_total}</td>
+<td class="total-cell">₹ ${o.grand_total}</td>
+<td>
+<span class="status-badge ${paid?'status-paid':'status-pending'}">
+${o.payment_status}
+</span>
+</td>
+<td>
+<button class="btn btn-primary btn-sm bill-btn"
+onclick='printBill(${JSON.stringify(o)})'>Bill</button>
+
+${!paid?`
+<button class="btn btn-success btn-sm bill-btn"
+onclick="markPaid('${o.order_id}')">Mark Paid</button>
+`:''}
+</td>
+</tr>`;
+});
+}
+
+/* Existing printBill function remains unchanged */
+function printBill(o){
+let stitchingRows="";
+o.stitching_breakup.forEach(item=>{
+stitchingRows+=`
+<tr>
+<td>${item.type}</td>
+<td>${item.qty}</td>
+<td>${item.rate}</td>
+<td>${item.amount}</td>
+</tr>`;
+});
+
+let fittingRows="";
+o.fitting_breakup.forEach(item=>{
+fittingRows+=`
+<tr>
+<td>${item.type}</td>
+<td>${item.qty}</td>
+<td>${item.rate}</td>
+<td>${item.amount}</td>
+</tr>`;
+});
+
+const win=window.open('','PRINT','height=700,width=900');
+win.document.write(`
+<html>
+<head>
+<title>Bill - ${o.customer}</title>
+<style>
+body{font-family:Arial;padding:20px;}
+h2{text-align:center;}
+table{width:100%;border-collapse:collapse;margin-top:20px;}
+td,th{border:1px solid #000;padding:6px;text-align:left;}
+.section{margin-top:30px;}
+.total-row{font-weight:bold;}
+</style>
+</head>
+<body>
+
+<h2>Quilt & Drapes – Work Bill</h2>
+
+<p><strong>Customer:</strong> ${o.customer}</p>
+<p><strong>Tailor:</strong> ${o.tailor||'-'}</p>
+<p><strong>Fitter:</strong> ${o.fitter||'-'}</p>
+
+<div class="section">
+<h4>Stitching Charges</h4>
+<table>
+<tr><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+${stitchingRows}
+<tr class="total-row">
+<td colspan="3">Total Stitching</td>
+<td>₹ ${o.stitching_total}</td>
+</tr>
+</table>
+</div>
+
+<div class="section">
+<h4>Fitting Charges</h4>
+<table>
+<tr><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+${fittingRows}
+<tr class="total-row">
+<td colspan="3">Total Fitting</td>
+<td>₹ ${o.fitting_total}</td>
+</tr>
+</table>
+</div>
+
+<div class="section">
+<h3>Grand Total: ₹ ${o.grand_total}</h3>
+</div>
+
+<p style="margin-top:50px;">Signature: ____________________</p>
+
+</body>
+</html>
+`);
+win.document.close();
+win.focus();
+win.print();
+}
+
+loadBilling();
+</script>
+
+</body>
+</html>
