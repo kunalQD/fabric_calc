@@ -50,6 +50,7 @@ def dashboard_kpis():
     stitching = 0
     completed = 0
     fabric_pending = 0
+    installation = 0
 
     for o in orders:
 
@@ -65,6 +66,8 @@ def dashboard_kpis():
             fabric_pending += 1
         elif status == "Stitching":
             stitching += 1
+        elif status == "Hardware/Material Installation":
+            installation += 1
         elif status == "Completed":
             completed += 1
 
@@ -72,7 +75,8 @@ def dashboard_kpis():
         "orders": total_orders,
         "fabric_pending": fabric_pending,
         "stitching": stitching,
-        "completed": completed
+        "completed": completed,
+        "installation": installation
     })
 
 
@@ -466,7 +470,6 @@ def get_order(order_id):
     return jsonify({
         "order_id": o["_id"],
 
-        # ✅ THESE WERE MISSING
         "name": cust.get("name", ""),
         "phone": cust.get("phone", ""),
         "address": cust.get("address", ""),
@@ -474,8 +477,14 @@ def get_order(order_id):
 
         "status": o.get("status"),
         "due_date": o.get("due_date"),
+
+        # ✅ ADD THESE
+        "tailor": o.get("tailor", ""),
+        "fitter": o.get("fitter", ""),
+
         "entries": o.get("entries", [])
     })
+
 
 
 # ---------------- UPDATE ORDER ----------------
@@ -541,6 +550,11 @@ def update_order(oid):
         "updated_at": datetime.utcnow()
     }}
 )
+    # 🔥 CLEAR PDF CACHE FOR THIS ORDER
+    cache_key = f"order_pdf:{oid}"
+    if cache_key in PDF_CACHE:
+        del PDF_CACHE[cache_key]
+
 
     return jsonify({"status": "updated"})
 
@@ -723,134 +737,231 @@ def billing_page():
 @app.route("/api/billing")
 def billing_data():
     if not is_logged_in() or session.get("role") != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    try:
+        orders = list(db.orders.find({}))
+        result = []
+
+        for o in orders:
+
+            cust = db.customers.find_one({"_id": o.get("customer_id")})
+            if not cust:
+                try:
+                    cust = db.customers.find_one(
+                        {"_id": ObjectId(o.get("customer_id"))}
+                    )
+                except:
+                    continue
+
+            tailor = o.get("tailor", cust.get("tailor", ""))
+            fitter = o.get("fitter", cust.get("fitter", ""))
+
+            stitching_total = 0
+            fitting_total = 0
+            stitching_breakup = []
+            fitting_breakup = []
+
+            for e in o.get("entries", []):
+
+                stitch_type = (e.get("Stitch") or "").strip()
+                panels = int(float(e.get("Panels") or 0))
+                sqft = float(e.get("SQFT") or 0)
+                window_name = (e.get("Window") or "").strip()
+
+                if window_name:
+                    rate = 200 if "Double" in window_name else 150
+                    qty = 1
+                    amount = qty * rate
+                    fitting_total += amount
+                    fitting_breakup.append({
+                        "type": window_name,
+                        "qty": qty,
+                        "rate": rate,
+                        "amount": amount
+                    })
+
+                amount = 0
+                rate = 0
+
+                # PLEATED / EYELET / RIPPLE → per panel
+                if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
+                    if panels > 0:
+                        if tailor == "Dev":
+                            rate = {"Pleated":90,"Eyelet":130,"Ripple":120}.get(stitch_type,0)
+                        elif tailor == "Dinesh":
+                            rate = 90
+                        amount = panels * rate
+
+                # ROMAN → per SQFT
+                elif "Roman" in stitch_type:
+                    if sqft > 0:
+                        if tailor == "Dev":
+                            rate = 125
+                        elif tailor == "Dinesh":
+                            rate = 100
+                        amount = sqft * rate
+
+
+                if amount > 0:
+
+                    # Roman blinds use SQFT as qty
+                    if "Roman" in stitch_type:
+                        qty_value = round(sqft, 2)
+                    else:
+                        qty_value = panels
+
+                    stitching_total += amount
+                    stitching_breakup.append({
+                        "type": stitch_type,
+                        "qty": qty_value,
+                        "rate": rate,
+                        "amount": amount
+                    })
+
+
+            override = o.get("billing_override")
+            if override:
+                stitching_total = override.get("stitching_total", stitching_total)
+                fitting_total = override.get("fitting_total", fitting_total)
+                stitching_breakup = override.get("stitching_breakup", stitching_breakup)
+                fitting_breakup = override.get("fitting_breakup", fitting_breakup)
+
+            result.append({
+                "order_id": str(o["_id"]),
+                "customer": cust.get("name", ""),
+                "tailor": tailor,
+                "fitter": fitter,
+                "stitching_total": round(stitching_total, 2),
+                "fitting_total": round(fitting_total, 2),
+                "grand_total": round(stitching_total + fitting_total, 2),
+                "payment_status": o.get("payment_status", "Pending"),
+                "paid_date": o.get("paid_date"),
+                "stitching_breakup": stitching_breakup,
+                "fitting_breakup": fitting_breakup
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        print("Billing error:", e)
+        return jsonify({"error": "Server error"}), 500
+
+@app.route("/api/billing/<oid>/print")
+def print_billing_pdf(oid):
+    if not is_logged_in() or session.get("role") != "admin":
         return "Unauthorized", 403
 
-    orders = list(db.orders.find({}))
-    print("Total Orders:", len(orders))
+    order = db.orders.find_one({"_id": oid})
+    if not order:
+        return "Not found", 404
 
-    result = []
+    cust = db.customers.find_one({"_id": ObjectId(order["customer_id"])})
 
-    for o in orders:
+    # Use billing_override if exists
+    override = order.get("billing_override")
 
-        cust = db.customers.find_one({"_id": o.get("customer_id")})
-        if not cust:
-            try:
-                cust = db.customers.find_one(
-                    {"_id": ObjectId(o.get("customer_id"))}
-                )
-            except:
-                cust = None
+    # Recalculate if no override
+    billing = next((b for b in billing_data().json if b["order_id"] == oid), None)
 
-        if not cust:
-            continue
+    stitching_breakup = billing["stitching_breakup"]
+    fitting_breakup = billing["fitting_breakup"]
+    stitching_total = billing["stitching_total"]
+    fitting_total = billing["fitting_total"]
+    grand_total = billing["grand_total"]
 
-        tailor = cust.get("tailor", "")
-        fitter = cust.get("fitter", "")
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    elems = []
 
-        stitching_total = 0
-        fitting_total = 0
-        stitching_breakup = []
-        fitting_breakup = []
+    elems.append(Paragraph("<b>Quilt & Drapes – Bill</b>", styles["Title"]))
+    elems.append(Spacer(1,12))
 
-        for e in o.get("entries", []):
+    elems.append(Paragraph(f"<b>Customer:</b> {cust.get('name','')}", styles["Normal"]))
+    elems.append(Paragraph(f"<b>Tailor:</b> {order.get('tailor','')}", styles["Normal"]))
+    elems.append(Paragraph(f"<b>Fitter:</b> {order.get('fitter','')}", styles["Normal"]))
+    elems.append(Spacer(1,12))
 
-            stitch_type = (e.get("Stitch") or "").strip()
+    # Stitching Table
+    data = [["Type","Qty","Rate","Amount"]]
+    for s in stitching_breakup:
+        data.append([s["type"], s["qty"], s["rate"], s["amount"]])
 
-            try:
-                panels = int(float(e.get("Panels") or 0))
-            except:
-                panels = 0
+    data.append(["","","Total", stitching_total])
 
-            try:
-                sqft = float(e.get("SQFT") or 0)
-            except:
-                sqft = 0
+    table = Table(data)
+    table.setStyle(TableStyle([
+        ("GRID",(0,0),(-1,-1),0.5,colors.grey),
+        ("BACKGROUND",(0,0),(-1,0),colors.lightgrey),
+        ("FONT",(0,0),(-1,0),"Helvetica-Bold")
+    ]))
 
-            window_name = (e.get("Window") or "").strip()
+    elems.append(Paragraph("<b>Stitching</b>", styles["Heading3"]))
+    elems.append(Spacer(1,6))
+    elems.append(table)
+    elems.append(Spacer(1,12))
 
-            # -------- FITTING --------
-            if window_name:
-                if "Double" in window_name:
-                    qty = 1
-                    rate = 200
-                else:
-                    qty = 1
-                    rate = 150
+    # Fitting Table
+    data2 = [["Type","Qty","Rate","Amount"]]
+    for f in fitting_breakup:
+        data2.append([f["type"], f["qty"], f["rate"], f["amount"]])
 
-                amount = qty * rate
-                fitting_total += amount
+    data2.append(["","","Total", fitting_total])
 
-                fitting_breakup.append({
-                    "type": window_name,
-                    "qty": qty,
-                    "rate": rate,
-                    "amount": amount
-                })
+    table2 = Table(data2)
+    table2.setStyle(TableStyle([
+        ("GRID",(0,0),(-1,-1),0.5,colors.grey),
+        ("BACKGROUND",(0,0),(-1,0),colors.lightgrey),
+        ("FONT",(0,0),(-1,0),"Helvetica-Bold")
+    ]))
 
-            # -------- STITCHING --------
-            if tailor == "Dev":
+    elems.append(Paragraph("<b>Fitting</b>", styles["Heading3"]))
+    elems.append(Spacer(1,6))
+    elems.append(table2)
+    elems.append(Spacer(1,18))
 
-                if stitch_type == "Pleated":
-                    rate = 90
-                    amount = panels * rate
+    elems.append(Paragraph(f"<b>Grand Total: ₹ {grand_total}</b>", styles["Heading2"]))
 
-                elif stitch_type == "Eyelet":
-                    rate = 130
-                    amount = panels * rate
+    doc.build(elems)
 
-                elif stitch_type == "Ripple":
-                    rate = 120
-                    amount = panels * rate
+    buffer.seek(0)
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"Bill_{cust.get('name','')}.pdf",
+        mimetype="application/pdf"
+    )
 
-                elif "Roman" in stitch_type:
-                    rate = 125
-                    amount = sqft * rate
 
-                else:
-                    rate = 0
-                    amount = 0
+@app.route("/api/billing/<oid>/update", methods=["PUT"])
+def update_billing_override(oid):
+    if not is_logged_in() or session.get("role") != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
 
-            elif tailor == "Dinesh":
+    try:
+        data = request.json
 
-                if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
-                    rate = 90
-                    amount = panels * rate
+        db.orders.update_one(
+            {"_id": oid},
+            {"$set": {
+                "billing_override": {
+                    "stitching_total": data.get("stitching_total", 0),
+                    "fitting_total": data.get("fitting_total", 0),
+                    "stitching_breakup": data.get("stitching_breakup", []),
+                    "fitting_breakup": data.get("fitting_breakup", []),
+                    "updated_at": datetime.utcnow()
+                }
+            }}
+        )
 
-                elif "Roman" in stitch_type:
-                    rate = 100
-                    amount = sqft * rate
+        return jsonify({"status": "billing updated"})
 
-                else:
-                    rate = 0
-                    amount = 0
+    except Exception as e:
+        print("Billing update error:", e)
+        return jsonify({"error": "Server error"}), 500
 
-            else:
-                rate = 0
-                amount = 0
 
-            if amount > 0:
-                stitching_total += amount
-                stitching_breakup.append({
-                    "type": stitch_type,
-                    "qty": panels if rate not in [125, 100] else sqft,
-                    "rate": rate,
-                    "amount": amount
-                })
-
-        result.append({
-            "order_id": str(o["_id"]),
-            "customer": str(cust.get("name", "")),
-            "tailor": str(tailor),
-            "fitter": str(fitter),
-            "stitching_total": float(round(stitching_total, 2)),
-            "fitting_total": float(round(fitting_total, 2)),
-            "grand_total": float(round(stitching_total + fitting_total, 2)),
-            "payment_status": str(o.get("payment_status", "Pending")),
-            "stitching_breakup": stitching_breakup,
-            "fitting_breakup": fitting_breakup
-        })
-
-    return jsonify(result)
 
 
 @app.route("/calendar")
@@ -859,18 +970,40 @@ def calendar_view():
         return redirect("/login")
     return render_template("calendar.html")
 
+@app.route("/api/billing/<oid>/update-assignment", methods=["PUT"])
+def update_billing_assignment(oid):
+    if not is_logged_in() or session.get("role") != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.json
+
+    db.orders.update_one(
+        {"_id": oid},
+        {"$set": {
+            "tailor": data.get("tailor",""),
+            "fitter": data.get("fitter",""),
+            "updated_at": datetime.utcnow()
+        }}
+    )
+
+    return jsonify({"status": "updated"})
+
 
 @app.route("/api/billing/<oid>/mark-paid", methods=["PUT"])
 def mark_paid(oid):
     if not is_logged_in() or session.get("role") != "admin":
-        return "Unauthorized", 403
+        return jsonify({"error": "Unauthorized"}), 403
 
     db.orders.update_one(
         {"_id": oid},
-        {"$set": {"payment_status": "Paid"}}
+        {"$set": {
+            "payment_status": "Paid",
+            "paid_date": datetime.utcnow()
+        }}
     )
 
     return jsonify({"status": "updated"})
+
 
 
 # ---------------- RUN ----------------

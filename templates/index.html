@@ -13,6 +13,11 @@
   background: linear-gradient(135deg,#f8fafc,#eef2f7);
 }
 
+.nav-link.active{
+  font-weight:600;
+  border-bottom:2px solid #fff;
+}
+
 .kpi-card {
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255,255,255,0.4);
@@ -79,13 +84,61 @@ body { background:#f4f7f6; font-size:14px; }
 
 <body>
 
-<div class="top-bar d-flex justify-content-between align-items-center">
-  <div class="d-flex gap-2 align-items-center">
-    <a href="/dashboard" class="btn btn-outline-light btn-sm">← Dashboard</a>
-    <strong id="pageTitle">New Order</strong>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+  <a class="navbar-brand fw-semibold" href="/dashboard">
+    Quilt & Drapes
+  </a>
+
+  <button class="navbar-toggler" type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#mainNavbar">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+
+  <div class="collapse navbar-collapse" id="mainNavbar">
+    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}"
+           href="/dashboard">
+           Dashboard
+        </a>
+      </li>
+
+      {% if session.get('role') == 'admin' %}
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/billing' %}active{% endif %}"
+           href="/billing">
+           Billing
+        </a>
+      </li>
+      {% endif %}
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/calendar' %}active{% endif %}"
+           href="/calendar">
+           Calendar
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/calculator' %}active{% endif %}"
+           href="/calculator">
+           New Order
+        </a>
+      </li>
+
+    </ul>
+
+    <div class="d-flex align-items-center gap-3">
+      <span class="text-success small">● Live</span>
+      <a href="/logout" class="btn btn-outline-light btn-sm">
+        Logout
+      </a>
+    </div>
   </div>
-  <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
-</div>
+</nav>
+
 
 <div class="container-max px-3 my-4">
 

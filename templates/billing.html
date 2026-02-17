@@ -1,232 +1,355 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Admin Billing – Quilt & Drapes</title>
+<title>Billing – Quilt & Drapes</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
-body{
-  background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
-  font-size:14px;
+body{ background:#f4f6fb; }
+
+.navbar{ box-shadow:0 4px 12px rgba(0,0,0,0.08); }
+
+.nav-link.active{
+  font-weight:600;
+  border-bottom:2px solid #fff;
 }
 
-.topbar{
-  background:#1f2933;
-  box-shadow:0 4px 12px rgba(0,0,0,.2);
-}
-
-.container-max{
-  max-width:1300px;
-  margin:auto;
-}
-
-.table-card{
+.billing-card{
   background:#fff;
   border-radius:16px;
+  padding:24px;
+  box-shadow:0 8px 30px rgba(0,0,0,0.05);
+}
+
+.summary-card{
+  border-radius:14px;
   padding:18px;
-  box-shadow:0 8px 24px rgba(0,0,0,.08);
-}
-
-.table thead{
-  background:#1f2933;
   color:#fff;
-}
-
-.table tbody tr{
-  transition:.2s;
-}
-
-.table tbody tr:hover{
-  background:#f3f4f6;
-}
-
-.paid-row{
-  background:#ecfdf5 !important;
-}
-
-.bill-btn{
-  font-size:12px;
-  padding:4px 10px;
-  border-radius:8px;
-}
-
-.total-cell{
   font-weight:600;
-  color:#111827;
+  box-shadow:0 6px 18px rgba(0,0,0,0.1);
 }
 
-.status-badge{
-  padding:4px 10px;
-  border-radius:999px;
-  font-size:12px;
+.card-total{background:linear-gradient(135deg,#2563eb,#1d4ed8);}
+.card-paid{background:linear-gradient(135deg,#16a34a,#15803d);}
+.card-pending{background:linear-gradient(135deg,#f59e0b,#d97706);}
+
+.table-hover tbody tr:hover{
+  background:#eef2ff;
+  cursor:pointer;
 }
 
-.status-paid{
-  background:#10B981;
+.paid-row{ background:#ecfdf5 !important; }
+
+.section-card{
+  background:#f9fafc;
+  padding:18px;
+  border-radius:12px;
+  margin-bottom:20px;
+}
+
+.total-box{
+  background:#111827;
   color:#fff;
+  padding:14px 20px;
+  border-radius:12px;
+  font-size:18px;
+  font-weight:600;
 }
 
-.status-pending{
-  background:#F59E0B;
-  color:#fff;
-}
+.modal-content{ border-radius:18px; }
 </style>
 </head>
 
 <body>
 
-<div class="topbar text-white px-4 py-3 d-flex justify-content-between align-items-center">
-<strong>Admin Billing Panel</strong>
-<div>
-<a href="/dashboard" class="btn btn-outline-light btn-sm me-2">Dashboard</a>
-<a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
-</div>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+  <a class="navbar-brand fw-semibold" href="/dashboard">
+    Quilt & Drapes
+  </a>
+
+  <button class="navbar-toggler" type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#mainNavbar">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+
+  <div class="collapse navbar-collapse" id="mainNavbar">
+    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}"
+           href="/dashboard">
+           Dashboard
+        </a>
+      </li>
+
+      {% if session.get('role') == 'admin' %}
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/billing' %}active{% endif %}"
+           href="/billing">
+           Billing
+        </a>
+      </li>
+      {% endif %}
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/calendar' %}active{% endif %}"
+           href="/calendar">
+           Calendar
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/calculator' %}active{% endif %}"
+           href="/calculator">
+           New Order
+        </a>
+      </li>
+
+    </ul>
+
+    <div class="d-flex align-items-center gap-3">
+      <span class="text-success small">● Live</span>
+      <a href="/logout" class="btn btn-outline-light btn-sm">
+        Logout
+      </a>
+    </div>
+  </div>
+</nav>
+
+
+<div class="container my-5">
+
+<!-- SUMMARY CARDS -->
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="summary-card card-total">
+      Total Revenue
+      <h4 id="totalRevenue" class="mt-2">₹ 0</h4>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="summary-card card-paid">
+      Paid Amount
+      <h4 id="paidAmount" class="mt-2">₹ 0</h4>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="summary-card card-pending">
+      Pending Amount
+      <h4 id="pendingAmount" class="mt-2">₹ 0</h4>
+    </div>
+  </div>
 </div>
 
-<div class="container-max px-3 my-4">
-<div class="table-card">
-<div class="table-responsive">
-<table class="table table-bordered table-sm align-middle mb-0" id="billingTable">
-<thead>
+<div class="billing-card">
+<h5 class="mb-4">Billing Overview</h5>
+
+<table class="table table-hover align-middle" id="billingTable">
+<thead class="table-light">
 <tr>
 <th>Customer</th>
-<th>Tailor</th>
-<th>Fitter</th>
-<th>Stitching ₹</th>
-<th>Fitting ₹</th>
-<th>Total ₹</th>
+<th>Total</th>
 <th>Status</th>
-<th>Actions</th>
 </tr>
 </thead>
 <tbody></tbody>
 </table>
-</div>
+
 </div>
 </div>
 
 <script>
+let billingData=[];
+let currentBilling=null;
+
 async function loadBilling(){
 const res=await fetch("/api/billing");
-const data=await res.json();
+billingData=await res.json();
+renderTable(billingData);
+updateSummary();
+}
+
+function updateSummary(){
+let total=0, paid=0, pending=0;
+
+billingData.forEach(o=>{
+total+=o.grand_total;
+if(o.payment_status==="Paid") paid+=o.grand_total;
+else pending+=o.grand_total;
+});
+
+document.getElementById("totalRevenue").innerText="₹ "+total.toFixed(2);
+document.getElementById("paidAmount").innerText="₹ "+paid.toFixed(2);
+document.getElementById("pendingAmount").innerText="₹ "+pending.toFixed(2);
+}
+
+function renderTable(data){
 const tbody=document.querySelector("#billingTable tbody");
 tbody.innerHTML="";
-
 data.forEach(o=>{
 const paid=o.payment_status==="Paid";
 tbody.innerHTML+=`
-<tr class="${paid?'paid-row':''}">
+<tr class="${paid?'paid-row':''}"
+onclick='openBillingEditor(${JSON.stringify(o).replace(/"/g,'&quot;')})'>
 <td>${o.customer}</td>
-<td>${o.tailor||'-'}</td>
-<td>${o.fitter||'-'}</td>
-<td>${o.stitching_total}</td>
-<td>${o.fitting_total}</td>
-<td class="total-cell">₹ ${o.grand_total}</td>
-<td>
-<span class="status-badge ${paid?'status-paid':'status-pending'}">
-${o.payment_status}
-</span>
-</td>
-<td>
-<button class="btn btn-primary btn-sm bill-btn"
-onclick='printBill(${JSON.stringify(o)})'>Bill</button>
-
-${!paid?`
-<button class="btn btn-success btn-sm bill-btn"
-onclick="markPaid('${o.order_id}')">Mark Paid</button>
-`:''}
-</td>
+<td class="fw-semibold">₹ ${o.grand_total}</td>
+<td>${paid?'<span class="badge bg-success">Paid</span>':'<span class="badge bg-warning text-dark">Pending</span>'}</td>
 </tr>`;
 });
 }
 
-/* Existing printBill function remains unchanged */
-function printBill(o){
-let stitchingRows="";
-o.stitching_breakup.forEach(item=>{
-stitchingRows+=`
+function openBillingEditor(o){
+currentBilling=JSON.parse(JSON.stringify(o));
+
+let html=`
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h4>${o.customer}</h4>
+    ${o.payment_status==="Paid" && o.paid_date
+      ? `<small class="text-success">Paid on ${new Date(o.paid_date).toLocaleDateString()}</small>`
+      : `<small class="text-muted">Pending Payment</small>`}
+  </div>
+
+  <div class="d-flex gap-2">
+    <a href="/api/billing/${o.order_id}/print"
+       class="btn btn-outline-primary btn-sm">
+       <i class="bi bi-download"></i> Download Bill PDF
+    </a>
+
+    ${o.payment_status!=="Paid"
+      ? `<button class="btn btn-success btn-sm" onclick="markPaidFromModal()">
+           <i class="bi bi-check-circle"></i> Mark Paid
+         </button>`
+      : ``}
+  </div>
+</div>
+
+<div class="section-card">
+<h5>Stitching</h5>
+<table class="table">
+<tr><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+`;
+
+o.stitching_breakup.forEach((row,i)=>{
+html+=`
 <tr>
-<td>${item.type}</td>
-<td>${item.qty}</td>
-<td>${item.rate}</td>
-<td>${item.amount}</td>
+<td>${row.type}</td>
+<td><input type="number" class="form-control form-control-sm"
+ value="${row.qty}"
+ onchange="recalcStitch(${i},this.value,'qty')"></td>
+<td><input type="number" class="form-control form-control-sm"
+ value="${row.rate}"
+ onchange="recalcStitch(${i},this.value,'rate')"></td>
+<td id="stitch_${i}">₹ ${row.amount}</td>
 </tr>`;
 });
 
-let fittingRows="";
-o.fitting_breakup.forEach(item=>{
-fittingRows+=`
+html+=`</table></div>
+
+<div class="section-card">
+<h5>Fitting</h5>
+<table class="table">
+<tr><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
+`;
+
+o.fitting_breakup.forEach((row,i)=>{
+html+=`
 <tr>
-<td>${item.type}</td>
-<td>${item.qty}</td>
-<td>${item.rate}</td>
-<td>${item.amount}</td>
+<td>${row.type}</td>
+<td><input type="number" class="form-control form-control-sm"
+ value="${row.qty}"
+ onchange="recalcFit(${i},this.value,'qty')"></td>
+<td><input type="number" class="form-control form-control-sm"
+ value="${row.rate}"
+ onchange="recalcFit(${i},this.value,'rate')"></td>
+<td id="fit_${i}">₹ ${row.amount}</td>
 </tr>`;
 });
 
-const win=window.open('','PRINT','height=700,width=900');
-win.document.write(`
-<html>
-<head>
-<title>Bill - ${o.customer}</title>
-<style>
-body{font-family:Arial;padding:20px;}
-h2{text-align:center;}
-table{width:100%;border-collapse:collapse;margin-top:20px;}
-td,th{border:1px solid #000;padding:6px;text-align:left;}
-.section{margin-top:30px;}
-.total-row{font-weight:bold;}
-</style>
-</head>
-<body>
+html+=`</table></div>
 
-<h2>Quilt & Drapes – Work Bill</h2>
-
-<p><strong>Customer:</strong> ${o.customer}</p>
-<p><strong>Tailor:</strong> ${o.tailor||'-'}</p>
-<p><strong>Fitter:</strong> ${o.fitter||'-'}</p>
-
-<div class="section">
-<h4>Stitching Charges</h4>
-<table>
-<tr><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
-${stitchingRows}
-<tr class="total-row">
-<td colspan="3">Total Stitching</td>
-<td>₹ ${o.stitching_total}</td>
-</tr>
-</table>
+<div class="total-box">
+Total: ₹ <span id="editorTotal">${o.grand_total}</span>
 </div>
 
-<div class="section">
-<h4>Fitting Charges</h4>
-<table>
-<tr><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>
-${fittingRows}
-<tr class="total-row">
-<td colspan="3">Total Fitting</td>
-<td>₹ ${o.fitting_total}</td>
-</tr>
-</table>
+<div class="mt-3 text-end">
+<button class="btn btn-warning" onclick="saveBillingChanges()">
+Save Changes
+</button>
 </div>
+`;
 
-<div class="section">
-<h3>Grand Total: ₹ ${o.grand_total}</h3>
-</div>
+document.getElementById("modalBody").innerHTML=html;
+new bootstrap.Modal(document.getElementById("billingModal")).show();
+}
 
-<p style="margin-top:50px;">Signature: ____________________</p>
 
-</body>
-</html>
-`);
-win.document.close();
-win.focus();
-win.print();
+async function markPaidFromModal(){
+await fetch(`/api/billing/${currentBilling.order_id}/mark-paid`,{method:"PUT"});
+loadBilling();
+bootstrap.Modal.getInstance(document.getElementById("billingModal")).hide();
 }
 
 loadBilling();
+
+function recalcStitch(i,val,type){
+currentBilling.stitching_breakup[i][type]=Number(val);
+let row=currentBilling.stitching_breakup[i];
+row.amount=row.qty*row.rate;
+document.getElementById("stitch_"+i).innerText="₹ "+row.amount;
+updateTotal();
+}
+
+function recalcFit(i,val,type){
+currentBilling.fitting_breakup[i][type]=Number(val);
+let row=currentBilling.fitting_breakup[i];
+row.amount=row.qty*row.rate;
+document.getElementById("fit_"+i).innerText="₹ "+row.amount;
+updateTotal();
+}
+
+function updateTotal(){
+let s=currentBilling.stitching_breakup.reduce((a,b)=>a+b.amount,0);
+let f=currentBilling.fitting_breakup.reduce((a,b)=>a+b.amount,0);
+currentBilling.grand_total=s+f;
+document.getElementById("editorTotal").innerText=currentBilling.grand_total;
+}
+
+async function saveBillingChanges(){
+await fetch(`/api/billing/${currentBilling.order_id}/update`,{
+method:"PUT",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({
+stitching_total: currentBilling.stitching_breakup.reduce((a,b)=>a+b.amount,0),
+fitting_total: currentBilling.fitting_breakup.reduce((a,b)=>a+b.amount,0),
+stitching_breakup: currentBilling.stitching_breakup,
+fitting_breakup: currentBilling.fitting_breakup
+})
+});
+loadBilling();
+bootstrap.Modal.getInstance(document.getElementById("billingModal")).hide();
+}
+
 </script>
+
+<div class="modal fade" id="billingModal" tabindex="-1">
+<div class="modal-dialog modal-xl modal-dialog-centered">
+<div class="modal-content">
+<div class="modal-header">
+<h5 class="modal-title">Billing Details</h5>
+<button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body" id="modalBody"></div>
+</div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 </body>
 </html>

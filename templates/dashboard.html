@@ -19,6 +19,12 @@ body{
   box-shadow:0 4px 12px rgba(0,0,0,.2);
 }
 
+.nav-link.active{
+  font-weight:600;
+  border-bottom:2px solid #fff;
+}
+
+
 /* KPI */
 .kpi-card{
   border-radius:16px;
@@ -146,32 +152,112 @@ body{
   text-decoration:none;
   box-shadow:0 8px 20px rgba(0,0,0,.25);
 }
+.kpi-install{
+  background:linear-gradient(135deg,#8B5CF6,#6D28D9);
+}
+
 </style>
 </head>
 
 <body>
 
-<nav class="navbar navbar-dark px-4">
-  <span class="navbar-brand">Quilt & Drapes</span>
-  <div class="d-flex align-items-center gap-2">
-    {% if session.get('role') == 'admin' %}
-      <a href="/billing" class="btn btn-warning btn-sm">Billing</a>
-      <a href="/calendar" class="btn btn-outline-light btn-sm">Calendar</a>
-    {% endif %}
-    <span id="refreshIndicator" class="text-success small">● Live</span>
-    <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-4">
+  <a class="navbar-brand fw-semibold" href="/dashboard">
+    Quilt & Drapes
+  </a>
+
+  <button class="navbar-toggler" type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#mainNavbar">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+
+  <div class="collapse navbar-collapse" id="mainNavbar">
+    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/dashboard' %}active{% endif %}"
+           href="/dashboard">
+           Dashboard
+        </a>
+      </li>
+
+      {% if session.get('role') == 'admin' %}
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/billing' %}active{% endif %}"
+           href="/billing">
+           Billing
+        </a>
+      </li>
+      {% endif %}
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/calendar' %}active{% endif %}"
+           href="/calendar">
+           Calendar
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a class="nav-link {% if request.path == '/calculator' %}active{% endif %}"
+           href="/calculator">
+           New Order
+        </a>
+      </li>
+
+    </ul>
+
+    <div class="d-flex align-items-center gap-3">
+      <span class="text-success small">● Live</span>
+      <a href="/logout" class="btn btn-outline-light btn-sm">
+        Logout
+      </a>
+    </div>
   </div>
 </nav>
 
 <div class="container-fluid px-4 mt-4">
 
-<!-- KPI -->
-<div class="row g-3 mb-4">
-<div class="col-md-3"><div class="kpi-card kpi-orders">Orders <h4 id="kpiOrders">0</h4></div></div>
-<div class="col-md-3"><div class="kpi-card kpi-pending">Fabric Pending <h4 id="kpiFabricPending">0</h4></div></div>
-<div class="col-md-3"><div class="kpi-card kpi-stitching">Stitching <h4 id="kpiStitching">0</h4></div></div>
-<div class="col-md-3"><div class="kpi-card kpi-completed">Completed <h4 id="kpiCompleted">0</h4></div></div>
+<div class="row g-4 mb-4 justify-content-center">
+
+<div class="col-lg-2 col-md-4 col-sm-6">
+  <div class="kpi-card kpi-orders text-center">
+    <div>Orders</div>
+    <h3 id="kpiOrders">0</h3>
+  </div>
 </div>
+
+<div class="col-lg-2 col-md-4 col-sm-6">
+  <div class="kpi-card kpi-pending text-center">
+    <div>Fabric Pending</div>
+    <h3 id="kpiFabricPending">0</h3>
+  </div>
+</div>
+
+<div class="col-lg-2 col-md-4 col-sm-6">
+  <div class="kpi-card kpi-stitching text-center">
+    <div>Stitching</div>
+    <h3 id="kpiStitching">0</h3>
+  </div>
+</div>
+
+<div class="col-lg-2 col-md-4 col-sm-6">
+  <div class="kpi-card kpi-install text-center">
+    <div>Hardware / Installation</div>
+    <h3 id="kpiInstall">0</h3>
+  </div>
+</div>
+
+<div class="col-lg-2 col-md-4 col-sm-6">
+  <div class="kpi-card kpi-completed text-center">
+    <div>Completed</div>
+    <h3 id="kpiCompleted">0</h3>
+  </div>
+</div>
+
+</div>
+
+
 
 <!-- Filters -->
 <div class="filter-card mb-4">
@@ -215,14 +301,15 @@ function getColumnClass(status){
   if(status==="Completed") return "col-completed";
   return "";
 }
-
 async function loadKPIs(){
   const d=await(await fetch("/api/dashboard/kpis")).json();
   kpiOrders.innerText=d.orders||0;
   kpiFabricPending.innerText=d.fabric_pending||0;
   kpiStitching.innerText=d.stitching||0;
+  kpiInstall.innerText=d.installation||0;   // ✅ NEW
   kpiCompleted.innerText=d.completed||0;
 }
+
 
 async function loadOrders(){
   const res=await fetch("/api/orders/list");
