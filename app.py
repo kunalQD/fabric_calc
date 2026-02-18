@@ -19,7 +19,7 @@ app = Flask(__name__)
 # ✅ KEEPING CORS EXACTLY SAME (UNCHANGED)
 CORS(app,
      supports_credentials=True,
-     origins=["http://localhost:3000"])
+     origins=["https://nestjs-fabric-app.vercel.app/", "http://localhost:3000/"],)
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_key")
 
