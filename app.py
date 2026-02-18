@@ -431,14 +431,17 @@ def save_order():
 
 
     order = {
-        "_id": str(uuid.uuid4()),
-        "customer_id": cid,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "status": request.form.get("status", "Pending"),
-        "due_date": request.form.get("due_date"),
-        "entries": entries
-    }
+    "_id": str(uuid.uuid4()),
+    "customer_id": cid,
+    "created_at": datetime.utcnow(),
+    "updated_at": datetime.utcnow(),
+    "status": request.form.get("status", "Pending"),
+    "due_date": request.form.get("due_date"),
+    "tailor": request.form.get("tailor",""),
+    "fitter": request.form.get("fitter",""),
+    "entries": entries
+}
+
 
     db.orders.insert_one(order)
     return jsonify({"status": "success"})
@@ -466,6 +469,14 @@ def get_order(order_id):
     for e in o.get("entries", []):
         if "Images" not in e:
             e["Images"] = []
+
+    status = o.get("status")
+
+    if status == "Pending":
+        status = "Fabric Order Pending"
+    elif status == "Cutting":
+        status = "Fabric In Transit"
+
 
     return jsonify({
         "order_id": o["_id"],

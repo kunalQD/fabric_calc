@@ -384,7 +384,6 @@ document.addEventListener("DOMContentLoaded",async()=>{
   if(p.has("order_id")){
     currentOrderId=p.get("order_id");
     isEditMode=true;
-    pageTitle.innerText="Edit Order";
     const o=await fetch(`/api/orders/${currentOrderId}`).then(r=>r.json());
     showroom.value=o.showroom;
     custName.value=o.name;
