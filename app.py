@@ -1,3 +1,4 @@
+
 # ================= IMPORTS =================
 import os
 import uuid
@@ -10,13 +11,14 @@ from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 import jwt
 from gridfs import GridFS
-from bson import ObjectId
+import google.generativeai as genai
+import base64
 
 # ================= APP CONFIG =================
 
 app = Flask(__name__)
 
-# ✅ KEEPING CORS EXACTLY SAME (UNCHANGED)
+# ✅ KEEPING CORS EXACTLY SAME
 CORS(app,
      supports_credentials=True,
      origins=["https://nestjs-fabric-app.vercel.app", "http://localhost:3000", 'https://fabricapp.quiltanddrapes.com'],)
@@ -26,6 +28,7 @@ SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_key")
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["fabric_app"]
+fs = GridFS(db)
 
 STATUSES = [
     "Fabric Order Pending",
@@ -81,14 +84,11 @@ def login():
 @app.route("/api/dashboard/kpis")
 @token_required
 def dashboard_kpis():
-
     orders = list(db.orders.find({}))
     fabric_pending = stitching = installation = completed = 0
 
     for o in orders:
         status = o.get("status", "")
-
-        # 🔄 STATUS MAPPING
         if status == "Pending":
             status = "Fabric Order Pending"
         elif status == "Cutting":
@@ -117,14 +117,11 @@ def dashboard_kpis():
 @app.route("/api/orders", methods=["POST"])
 @token_required
 def create_order():
-
     data = request.json
     cust = data["customer"]
     entries = data["entries"]
 
-    # -------- CUSTOMER --------
     customer = db.customers.find_one({"phone": cust["phone"]})
-
     if customer:
         cid = customer["_id"]
         db.customers.update_one({"_id": cid}, {"$set": cust})
@@ -134,7 +131,6 @@ def create_order():
             "created_at": datetime.utcnow()
         }).inserted_id
 
-    # -------- ORDER --------
     order = {
         "_id": str(uuid.uuid4()),
         "customer_id": cid,
@@ -142,8 +138,8 @@ def create_order():
         "updated_at": datetime.utcnow(),
         "status": data.get("status", "Fabric Order Pending"),
         "due_date": data.get("due_date"),
-        "tailor": data.get("tailor", ""),
-        "fitter": data.get("fitter", ""),
+        "tailor": data.get("tailor") or "None",
+        "fitter": data.get("fitter") or "None",
         "entries": entries
     }
 
@@ -156,24 +152,16 @@ def create_order():
 @app.route("/api/orders/list")
 @token_required
 def list_orders():
-
     out = []
-
     for o in db.orders.find({}).sort("created_at", DESCENDING):
-
-        # Safe customer resolution
         cust = db.customers.find_one({"_id": o.get("customer_id")})
         if not cust:
             try:
-                cust = db.customers.find_one(
-                    {"_id": ObjectId(o.get("customer_id"))}
-                )
+                cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
             except:
                 continue
 
         raw_status = o.get("status", "")
-
-        # 🔄 STATUS MAPPING
         if raw_status == "Pending":
             mapped_status = "Fabric Order Pending"
         elif raw_status == "Cutting":
@@ -181,9 +169,7 @@ def list_orders():
         else:
             mapped_status = raw_status
 
-        sqft = 0
-        panels = 0
-
+        sqft = panels = 0
         for e in o.get("entries") or []:
             sqft += float(e.get("SQFT", 0) or 0)
             panels += int(float(e.get("Panels", 0) or 0))
@@ -197,42 +183,35 @@ def list_orders():
             "updated_at": o.get("updated_at"),
             "due_date": o.get("due_date"),
             "showroom": cust.get("showroom", ""),
-            "tailor": o.get("tailor", ""),
-            "fitter": o.get("fitter", ""),
+            "tailor": o.get("tailor") or "None",
+            "fitter": o.get("fitter") or "None",
             "item_count": len(o.get("entries") or []),
             "panels": panels,
             "sqft": round(sqft, 2)
         })
-
     return jsonify(out)
 
 
 # ================= GET ORDER (EDIT) =================
 
-@app.route("/api/orders/<oid>", methods=["GET"])
+@app.route("/api/orders/<oid>")
 @token_required
 def get_order(oid):
-
     o = db.orders.find_one({"_id": oid})
     if not o:
         return jsonify({"error": "Not found"}), 404
 
-    # Safe customer resolution
     cust = db.customers.find_one({"_id": o.get("customer_id")})
     if not cust:
         try:
-            cust = db.customers.find_one(
-                {"_id": ObjectId(o.get("customer_id"))}
-            )
+            cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
         except:
             cust = {}
 
-    # Normalize Images
     for e in o.get("entries", []):
         if "Images" not in e:
             e["Images"] = []
 
-    # 🔄 STATUS MAPPING
     status = o.get("status")
     if status == "Pending":
         status = "Fabric Order Pending"
@@ -241,14 +220,14 @@ def get_order(oid):
 
     return jsonify({
         "order_id": o["_id"],
-        "name": cust.get("name", ""),
+        "customer_name": cust.get("name", ""),
         "phone": cust.get("phone", ""),
         "address": cust.get("address", ""),
         "showroom": cust.get("showroom", ""),
         "status": status,
         "due_date": o.get("due_date"),
-        "tailor": o.get("tailor", ""),
-        "fitter": o.get("fitter", ""),
+        "tailor": o.get("tailor") or "None",
+        "fitter": o.get("fitter") or "None",
         "entries": o.get("entries", [])
     })
 
@@ -258,8 +237,30 @@ def get_order(oid):
 @app.route("/api/orders/<oid>", methods=["PUT"])
 @token_required
 def update_order(oid):
-
     data = request.json
+    
+    o = db.orders.find_one({"_id": oid})
+    if o and "customer" in data:
+        cust = data["customer"]
+        cid = o.get("customer_id")
+        update_fields = {
+            "name": cust.get("name"),
+            "phone": cust.get("phone"),
+            "address": cust.get("address"),
+            "showroom": cust.get("showroom"),
+            "updated_at": datetime.utcnow()
+        }
+        try:
+            db.customers.update_one({"_id": cid}, {"$set": update_fields})
+        except:
+            try:
+                db.customers.update_one({"_id": ObjectId(str(cid))}, {"$set": update_fields})
+            except:
+                pass
+
+    # Ensure tailor and fitter don't save as empty strings if provided as empty
+    tailor = data.get("tailor") or "None"
+    fitter = data.get("fitter") or "None"
 
     db.orders.update_one(
         {"_id": oid},
@@ -267,12 +268,11 @@ def update_order(oid):
             "entries": data.get("entries"),
             "status": data.get("status"),
             "due_date": data.get("due_date"),
-            "tailor": data.get("tailor", ""),
-            "fitter": data.get("fitter", ""),
+            "tailor": tailor,
+            "fitter": fitter,
             "updated_at": datetime.utcnow()
         }}
     )
-
     return jsonify({"status": "updated"})
 
 
@@ -281,15 +281,13 @@ def update_order(oid):
 @app.route("/api/orders/<oid>", methods=["DELETE"])
 @token_required
 def delete_order(oid):
-
     if request.user["role"] != "admin":
         return jsonify({"error": "Not allowed"}), 403
-
     db.orders.delete_one({"_id": oid})
     return jsonify({"status": "deleted"})
 
 
-# ================= BILLING (FIXED VERSION) =================
+# ================= BILLING =================
 
 @app.route("/api/billing")
 @token_required
@@ -298,42 +296,31 @@ def billing_data():
         return jsonify({"error": "Unauthorized"}), 403
 
     result = []
-    # Loop through all orders to calculate fabrication and installation costs
     for o in db.orders.find({}):
-        
-        # --- SAFE CUSTOMER RESOLUTION (The fix) ---
         cust_id = o.get("customer_id")
         cust = db.customers.find_one({"_id": cust_id})
-        
         if not cust and cust_id:
             try:
-                # If direct lookup fails, try converting to ObjectId
                 cust = db.customers.find_one({"_id": ObjectId(str(cust_id))})
-            except Exception:
+            except:
                 pass
         
-        # If we still can't find a customer, we skip this record to prevent errors
         if not cust:
             continue
 
-        tailor = o.get("tailor", "")
-        fitter = o.get("fitter", "")
-
-        stitching_total = 0
-        fitting_total = 0
+        tailor = o.get("tailor") or "None"
+        fitter = o.get("fitter") or "None"
+        stitching_total = fitting_total = 0
         stitching_breakup = []
         fitting_breakup = []
 
-        # Process each window unit in the order
         for e in o.get("entries", []):
             stitch_type = (e.get("Stitch") or "").strip()
             panels = int(float(e.get("Panels") or 0))
             sqft = float(e.get("SQFT") or 0)
             window_name = (e.get("Window") or "").strip()
 
-            # Installation / Fitting Logic
-            if window_name:
-                # Charge more for Double Tracks
+            if window_name and fitter != "None" and fitter != "":
                 rate = 200 if "Double" in window_name else 150
                 amount = rate
                 fitting_total += amount
@@ -344,29 +331,26 @@ def billing_data():
                     "amount": amount
                 })
 
-            # Fabrication / Stitching Logic
-            rate = 0
-            amount = 0
-            if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
-                if panels > 0:
-                    if tailor == "Dev":
-                        rate = {"Pleated": 90, "Eyelet": 130, "Ripple": 120}.get(stitch_type, 0)
-                    elif tailor == "Dinesh":
-                        rate = 90
-                    amount = panels * rate
-            elif "Roman" in stitch_type:
-                if sqft > 0:
-                    if tailor == "Dev":
-                        rate = 125
-                    elif tailor == "Dinesh":
-                        rate = 100
-                    amount = sqft * rate
+            rate = amount = 0
+            if tailor != "None" and tailor != "":
+                if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
+                    if panels > 0:
+                        if tailor == "Dev":
+                            rate = {"Pleated": 90, "Eyelet": 130, "Ripple": 120}.get(stitch_type, 0)
+                        elif tailor == "Dinesh":
+                            rate = 90
+                        amount = panels * rate
+                elif "Roman" in stitch_type:
+                    if sqft > 0:
+                        rate = 125 if tailor == "Dev" else (100 if tailor == "Dinesh" else 0)
+                        amount = sqft * rate
 
             if amount > 0:
                 qty_value = round(sqft, 2) if "Roman" in stitch_type else panels
                 stitching_total += amount
                 stitching_breakup.append({
                     "type": stitch_type,
+                    "subtype": window_name,
                     "qty": qty_value,
                     "rate": rate,
                     "amount": amount
@@ -374,65 +358,56 @@ def billing_data():
 
         result.append({
             "order_id": str(o.get("_id")),
-            "customer": cust.get("name", "Unknown Client"),
+            "customer_name": cust.get("name", "Unknown Client"),
             "tailor": tailor,
             "fitter": fitter,
             "stitching_total": round(stitching_total, 2),
             "fitting_total": round(fitting_total, 2),
             "grand_total": round(stitching_total + fitting_total, 2),
             "payment_status": o.get("payment_status", "Pending"),
-            "paid_date": o.get("paid_date"),
             "stitching_breakup": stitching_breakup,
             "fitting_breakup": fitting_breakup
         })
-
     return jsonify(result)
 
-# ================= ANALYTICS =================
+# ================= AI VISUALIZER =================
 
-@app.route("/api/analytics/stages")
+@app.route("/api/ai/preview", methods=["POST"])
 @token_required
-def stage_analytics():
-    pipeline = [{"$group": {"_id": "$status", "count": {"$sum": 1}}}]
-    return jsonify(list(db.orders.aggregate(pipeline)))
+def generate_ai_preview():
+    try:
+        # Use fresh config per call if using the Python SDK here too
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        data = request.json
+        window_bytes = base64.b64decode(data.get("window_image"))
+        fabric_bytes = base64.b64decode(data.get("fabric_image"))
+        mode = data.get("mode", "Curtain")
+        sub_type = data.get("sub_type", "Ripple Fold")
 
+        model = genai.GenerativeModel('gemini-3-pro-image-preview')
+        prompt = (f"Render the fabric from the second image as a {mode} in {sub_type} style "
+                 "onto the window shown in the first image. Photorealistic high-quality render.")
 
-@app.route("/api/analytics/daily-assignments")
-@token_required
-def daily_assignments():
+        response = model.generate_content([
+            {'mime_type': 'image/jpeg', 'data': window_bytes},
+            {'mime_type': 'image/jpeg', 'data': fabric_bytes},
+            prompt
+        ])
 
-    today = datetime.utcnow().date()
-    summary = {"tailors": {}, "fitters": {}}
-
-    for o in db.orders.find({}):
-
-        created = o.get("created_at")
-        if created and created.date() == today:
-
-            t = o.get("tailor", "")
-            f = o.get("fitter", "")
-
-            if t:
-                summary["tailors"][t] = summary["tailors"].get(t, 0) + 1
-            if f:
-                summary["fitters"][f] = summary["fitters"].get(f, 0) + 1
-
-    return jsonify(summary)
-
-fs = GridFS(db)
+        for part in response.candidates[0].content.parts:
+            if part.inline_data:
+                return jsonify({"status": "success", "preview": base64.b64encode(part.inline_data.data).decode('utf-8')})
+        return jsonify({"error": "No image generated"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/images/gridfs/<fid>")
 def get_gridfs_image(fid):
     try:
-        # Some IDs might come with a suffix like :1, we strip it
-        clean_id = fid.split(':')[0]
-        file = fs.get(ObjectId(clean_id))
+        file = fs.get(ObjectId(fid))
         return file.read(), 200, {'Content-Type': 'image/jpeg'}
-    except Exception as e:
-        print(f"GridFS Error: {e}")
-        return "Image not found", 404
-
-# ================= RUN =================
+    except:
+        return "Not found", 404
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
