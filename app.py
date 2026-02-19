@@ -18,10 +18,10 @@ import base64
 
 app = Flask(__name__)
 
-# ✅ KEEPING CORS EXACTLY SAME
+# CORS configuration
 CORS(app,
      supports_credentials=True,
-     origins=["https://nestjs-fabric-app.vercel.app", "http://localhost:3000", 'https://fabricapp.quiltanddrapes.com'],)
+     origins=["https://nestjs-fabric-app.vercel.app", "http://localhost:3000", "https://fabricapp.quiltanddrapes.com"],)
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_key")
 
@@ -258,7 +258,6 @@ def update_order(oid):
             except:
                 pass
 
-    # Ensure tailor and fitter don't save as empty strings if provided as empty
     tailor = data.get("tailor") or "None"
     fitter = data.get("fitter") or "None"
 
@@ -370,23 +369,42 @@ def billing_data():
         })
     return jsonify(result)
 
-# ================= AI VISUALIZER =================
+# ================= AI VISUALIZER (SERVER-SIDE) =================
 
 @app.route("/api/ai/preview", methods=["POST"])
 @token_required
 def generate_ai_preview():
     try:
-        # Use fresh config per call if using the Python SDK here too
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        # Obtain API key from environment ONLY
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return jsonify({"error": "Backend API_KEY not configured"}), 500
+        
+        genai.configure(api_key=api_key)
+        
         data = request.json
-        window_bytes = base64.b64decode(data.get("window_image"))
-        fabric_bytes = base64.b64decode(data.get("fabric_image"))
+        window_b64 = data.get("window_image")
+        fabric_b64 = data.get("fabric_image")
         mode = data.get("mode", "Curtain")
         sub_type = data.get("sub_type", "Ripple Fold")
+        style_prompt = data.get("style_prompt", "modern interior design")
 
+        if not window_b64 or not fabric_b64:
+            return jsonify({"error": "Missing image data"}), 400
+
+        window_bytes = base64.b64decode(window_b64)
+        fabric_bytes = base64.b64decode(fabric_b64)
+
+        # Pro model usage for high quality
         model = genai.GenerativeModel('gemini-3-pro-image-preview')
-        prompt = (f"Render the fabric from the second image as a {mode} in {sub_type} style "
-                 "onto the window shown in the first image. Photorealistic high-quality render.")
+        
+        prompt = (
+            f"You are an expert interior design visualizer. "
+            f"TASK: Render the fabric from the second image as a {mode} in {sub_type} style onto the window in the first image. "
+            f"The room aesthetic must be: {style_prompt}. "
+            f"REQUIREMENTS: Ensure realistic perspective, lighting, and shadow matching. Natural drape physics. "
+            f"Output ONLY the final rendered image."
+        )
 
         response = model.generate_content([
             {'mime_type': 'image/jpeg', 'data': window_bytes},
@@ -394,11 +412,18 @@ def generate_ai_preview():
             prompt
         ])
 
+        # Find the image part in the response
         for part in response.candidates[0].content.parts:
             if part.inline_data:
-                return jsonify({"status": "success", "preview": base64.b64encode(part.inline_data.data).decode('utf-8')})
-        return jsonify({"error": "No image generated"}), 500
+                return jsonify({
+                    "status": "success", 
+                    "preview": base64.b64encode(part.inline_data.data).decode('utf-8')
+                })
+        
+        return jsonify({"error": "AI model did not return an image part"}), 500
+        
     except Exception as e:
+        print(f"CRITICAL BACKEND ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/images/gridfs/<fid>")
