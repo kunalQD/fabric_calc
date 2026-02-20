@@ -19,9 +19,19 @@ import base64
 app = Flask(__name__)
 
 # CORS configuration
-CORS(app,
-     supports_credentials=True,
-     origins=["https://nestjs-fabric-app.vercel.app", "http://localhost:3000", "https://fabricapp.quiltanddrapes.com"],)
+CORS(
+    app,
+    resources={r"/api/*": {
+        "origins": [
+            "https://fabricapp.quiltanddrapes.com",
+            "https://nestjs-fabric-app.vercel.app",
+            "http://localhost:3000"
+        ]
+    }},
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+)
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_key")
 
