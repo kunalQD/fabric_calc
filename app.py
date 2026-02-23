@@ -55,18 +55,28 @@ USERS = {
     "staffqd": {"password": "staffQD", "role": "staff"}
 }
 
+# ================= REPLACED AUTH DECORATOR =================
+
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        token = request.headers.get("Authorization")
-        if not token:
-            return jsonify({"error": "Token missing"}), 401
+        auth_header = request.headers.get("Authorization")
+        
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Token missing or malformed"}), 401
+        
         try:
-            token = token.split(" ")[1]
+            # Extract token from "Bearer <token>"
+            token = auth_header.split(" ")[1]
             data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             request.user = data
-        except:
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token has expired"}), 401
+        except jwt.InvalidTokenError:
             return jsonify({"error": "Invalid token"}), 401
+        except Exception:
+            return jsonify({"error": "Authentication failed"}), 401
+            
         return f(*args, **kwargs)
     return decorated
 
@@ -94,33 +104,34 @@ def login():
 @app.route("/api/dashboard/kpis")
 @token_required
 def dashboard_kpis():
-    orders = list(db.orders.find({}))
-    fabric_pending = stitching = installation = completed = 0
+    pipeline = [
+        {"$facet": {
+            "total": [{"$count": "count"}],
+            "by_status": [
+                {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+            ]
+        }}
+    ]
+    
+    results = list(db.orders.aggregate(pipeline))[0]
+    
+    # Initialize counts
+    counts = {
+        "orders": results["total"][0]["count"] if results["total"] else 0,
+        "fabric_pending": 0, "stitching": 0, "installation": 0, "completed": 0, "transit": 0
+    }
+    
+    # Map results from the single DB trip
+    for item in results["by_status"]:
+        status = item["_id"]
+        count = item["count"]
+        if status in ["Fabric Order Pending", "Pending"]: counts["fabric_pending"] += count
+        elif status == "Stitching": counts["stitching"] = count
+        elif status in ["Hardware/Material Installation", "Installation"]: counts["installation"] = count
+        elif status == "Completed": counts["completed"] = count
+        elif status in ["Fabric In Transit", "Cutting"]: counts["transit"] = count
 
-    for o in orders:
-        status = o.get("status", "")
-        if status == "Pending":
-            status = "Fabric Order Pending"
-        elif status == "Cutting":
-            status = "Fabric In Transit"
-
-        if status == "Fabric Order Pending":
-            fabric_pending += 1
-        elif status == "Stitching":
-            stitching += 1
-        elif status == "Hardware/Material Installation":
-            installation += 1
-        elif status == "Completed":
-            completed += 1
-
-    return jsonify({
-        "orders": len(orders),
-        "fabric_pending": fabric_pending,
-        "stitching": stitching,
-        "installation": installation,
-        "completed": completed
-    })
-
+    return jsonify(counts)
 
 # ================= CREATE ORDER =================
 
@@ -159,51 +170,72 @@ def create_order():
 
 # ================= LIST ORDERS =================
 
+# ================= REPLACE LIST ORDERS =================
+
 @app.route("/api/orders/list")
 @token_required
 def list_orders():
+    # 1. Get the search query from the frontend
+    search_query = request.args.get("search", "").strip()
+    
+    # 2. Build the MongoDB Filter
+    # Default: Show only active orders (Exclude "Completed")
+    query_filter = {"status": {"$ne": "Completed"}}
+    
+    # If the user is searching, we ignore the "Completed" restriction to allow finding old orders
+    if search_query:
+        # Search across customer names or phone numbers
+        cust_ids = [c["_id"] for c in db.customers.find({
+            "$or": [
+                {"name": {"$regex": search_query, "$options": "i"}},
+                {"phone": {"$regex": search_query, "$options": "i"}}
+            ]
+        }, {"_id": 1})]
+        
+        # Override filter to find specific customer's orders (including completed ones)
+        query_filter = {"customer_id": {"$in": [str(cid) for cid in cust_ids]}}
+
+    # 3. Optimized Aggregation Pipeline
+    pipeline = [
+        {"$match": query_filter},
+        {"$addFields": {
+            "customer_id_obj": {"$toObjectId": "$customer_id"}
+        }},
+        {
+            "$lookup": {
+                "from": "customers",
+                "localField": "customer_id_obj",
+                "foreignField": "_id",
+                "as": "customer_info"
+            }
+        },
+        {"$unwind": {"path": "$customer_info", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"created_at": -1}},
+        {"$limit": 15} # <--- CRITICAL: Only send 15 orders to the frontend
+    ]
+    
+    orders = list(db.orders.aggregate(pipeline))
     out = []
-    for o in db.orders.find({}).sort("created_at", DESCENDING):
-        cust = db.customers.find_one({"_id": o.get("customer_id")})
-        if not cust:
-            try:
-                cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
-            except:
-                continue
-
-        raw_status = o.get("status", "")
-        if raw_status == "Pending":
-            mapped_status = "Fabric Order Pending"
-        elif raw_status == "Cutting":
-            mapped_status = "Fabric In Transit"
-        else:
-            mapped_status = raw_status
-
-        sqft = panels = 0
-        for e in o.get("entries") or []:
-            sqft += float(e.get("SQFT", 0) or 0)
-            panels += int(float(e.get("Panels", 0) or 0))
+    
+    for o in orders:
+        cust = o.get("customer_info", {})
+        entries = o.get("entries") or []
+        sqft = sum(float(e.get("SQFT", 0) or 0) for e in entries)
 
         out.append({
             "order_id": o["_id"],
             "name": cust.get("name"),
             "phone": cust.get("phone"),
-            "status": mapped_status,
+            "status": o.get("status", ""),
             "created_at": o.get("created_at"),
-            "updated_at": o.get("updated_at"),
             "due_date": o.get("due_date"),
             "showroom": cust.get("showroom", ""),
-            "tailor": o.get("tailor") or "None",
-            "fitter": o.get("fitter") or "None",
-            "item_count": len(o.get("entries") or []),
-            "panels": panels,
+            "item_count": len(entries),
             "sqft": round(sqft, 2)
         })
     return jsonify(out)
 
-
-# ================= GET ORDER (EDIT) =================
-
+# ================= REPLACE get_order in app.py =================
 @app.route("/api/orders/<oid>")
 @token_required
 def get_order(oid):
@@ -211,36 +243,33 @@ def get_order(oid):
     if not o:
         return jsonify({"error": "Not found"}), 404
 
-    cust = db.customers.find_one({"_id": o.get("customer_id")})
+    # Robust ID lookup
+    cid = o.get("customer_id")
+    cust = None
+    if cid:
+        # Try finding by ObjectId first, then by String
+        cust = db.customers.find_one({"_id": ObjectId(str(cid))}) if ObjectId.is_valid(str(cid)) else None
+        if not cust:
+            cust = db.customers.find_one({"_id": cid})
+
     if not cust:
-        try:
-            cust = db.customers.find_one({"_id": ObjectId(o.get("customer_id"))})
-        except:
-            cust = {}
+        cust = {}
 
-    for e in o.get("entries", []):
-        if "Images" not in e:
-            e["Images"] = []
-
-    status = o.get("status")
-    if status == "Pending":
-        status = "Fabric Order Pending"
-    elif status == "Cutting":
-        status = "Fabric In Transit"
-
+    # Map legacy field names to frontend expected names
     return jsonify({
         "order_id": o["_id"],
-        "customer_name": cust.get("name", ""),
+        "customer_name": cust.get("name", "Unknown Client"),
         "phone": cust.get("phone", ""),
         "address": cust.get("address", ""),
         "showroom": cust.get("showroom", ""),
-        "status": status,
-        "due_date": o.get("due_date"),
+        "status": o.get("status", "Fabric Order Pending"),
+        "due_date": o.get("due_date", ""),
         "tailor": o.get("tailor") or "None",
         "fitter": o.get("fitter") or "None",
-        "entries": o.get("entries", [])
+        "entries": o.get("entries", []),
+        "payments": o.get("payments", []), 
+        "total_bill": o.get("total_bill", 0) 
     })
-
 
 # ================= UPDATE ORDER =================
 
@@ -258,6 +287,7 @@ def update_order(oid):
             "phone": cust.get("phone"),
             "address": cust.get("address"),
             "showroom": cust.get("showroom"),
+            "payments": data.get("payments", []),
             "updated_at": datetime.utcnow()
         }
         try:
@@ -277,8 +307,10 @@ def update_order(oid):
             "entries": data.get("entries"),
             "status": data.get("status"),
             "due_date": data.get("due_date"),
-            "tailor": tailor,
-            "fitter": fitter,
+            "tailor": data.get("tailor") or "None",
+            "fitter": data.get("fitter") or "None",
+            "payments": data.get("payments", []), # Add this line
+            "total_bill": data.get("total_bill", 0), # Add this line
             "updated_at": datetime.utcnow()
         }}
     )
@@ -297,26 +329,59 @@ def delete_order(oid):
 
 
 # ================= BILLING =================
-
 @app.route("/api/billing")
 @token_required
 def billing_data():
     if request.user["role"] != "admin":
         return jsonify({"error": "Unauthorized"}), 403
 
+    # ================= FIXED BILLING PIPELINE =================
+    pipeline = [
+        {
+            "$addFields": {
+                # Fixes the type mismatch: converts String IDs to ObjectIds
+                "customer_id_obj": {
+                    "$cond": {
+                        "if": {"$eq": [{"$type": "$customer_id"}, "string"]},
+                        "then": {"$toObjectId": "$customer_id"},
+                        "else": "$customer_id"
+                    }
+                }
+            }
+        },
+        {
+            # Only fetch necessary fields to keep the query fast
+            "$project": {
+                "customer_id_obj": 1, "tailor": 1, "fitter": 1, 
+                "entries": 1, "payment_status": 1, "status": 1
+            }
+        },
+        {
+            "$lookup": {
+                "from": "customers",
+                "localField": "customer_id_obj", # Join using the fixed ID
+                "foreignField": "_id",
+                "as": "customer"
+            }
+        },
+        {
+            # preserveNullAndEmptyArrays prevents orders from disappearing
+            "$unwind": {
+                "path": "$customer",
+                "preserveNullAndEmptyArrays": True
+            }
+        }
+    ]
+    # ... rest of your logic remains the same
+    
+    orders = list(db.orders.aggregate(pipeline))
     result = []
-    for o in db.orders.find({}):
-        cust_id = o.get("customer_id")
-        cust = db.customers.find_one({"_id": cust_id})
-        if not cust and cust_id:
-            try:
-                cust = db.customers.find_one({"_id": ObjectId(str(cust_id))})
-            except:
-                pass
-        
-        if not cust:
-            continue
+    
+    # Pre-define rates for faster access
+    dev_rates = {"Pleated": 90, "Eyelet": 130, "Ripple": 120}
 
+    for o in orders:
+        cust = o.get("customer", {})
         tailor = o.get("tailor") or "None"
         fitter = o.get("fitter") or "None"
         stitching_total = fitting_total = 0
@@ -329,53 +394,43 @@ def billing_data():
             sqft = float(e.get("SQFT") or 0)
             window_name = (e.get("Window") or "").strip()
 
-            if window_name and fitter != "None" and fitter != "":
+            # Fitting calculation
+            if window_name and fitter not in ["None", ""]:
                 rate = 200 if "Double" in window_name else 150
-                amount = rate
-                fitting_total += amount
-                fitting_breakup.append({
-                    "type": window_name,
-                    "qty": 1,
-                    "rate": rate,
-                    "amount": amount
-                })
+                fitting_total += rate
+                fitting_breakup.append({"type": window_name, "qty": 1, "rate": rate, "amount": rate})
 
+            # Stitching calculation
             rate = amount = 0
-            if tailor != "None" and tailor != "":
+            if tailor not in ["None", ""]:
                 if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
                     if panels > 0:
-                        if tailor == "Dev":
-                            rate = {"Pleated": 90, "Eyelet": 130, "Ripple": 120}.get(stitch_type, 0)
-                        elif tailor == "Dinesh":
-                            rate = 90
+                        rate = dev_rates.get(stitch_type, 0) if tailor == "Dev" else 90 if tailor == "Dinesh" else 0
                         amount = panels * rate
-                elif "Roman" in stitch_type:
-                    if sqft > 0:
-                        rate = 125 if tailor == "Dev" else (100 if tailor == "Dinesh" else 0)
-                        amount = sqft * rate
+                elif "Roman" in stitch_type and sqft > 0:
+                    rate = 125 if tailor == "Dev" else 100 if tailor == "Dinesh" else 0
+                    amount = sqft * rate
 
             if amount > 0:
-                qty_value = round(sqft, 2) if "Roman" in stitch_type else panels
+                qty_val = round(sqft, 2) if "Roman" in stitch_type else panels
                 stitching_total += amount
                 stitching_breakup.append({
-                    "type": stitch_type,
-                    "subtype": window_name,
-                    "qty": qty_value,
-                    "rate": rate,
-                    "amount": amount
+                    "type": stitch_type, "subtype": window_name, 
+                    "qty": qty_val, "rate": rate, "amount": amount
                 })
 
         result.append({
             "order_id": str(o.get("_id")),
             "customer_name": cust.get("name", "Unknown Client"),
-            "tailor": tailor,
-            "fitter": fitter,
+            "tailor": tailor, "fitter": fitter,
             "stitching_total": round(stitching_total, 2),
             "fitting_total": round(fitting_total, 2),
             "grand_total": round(stitching_total + fitting_total, 2),
             "payment_status": o.get("payment_status", "Pending"),
             "stitching_breakup": stitching_breakup,
-            "fitting_breakup": fitting_breakup
+            "fitting_breakup": fitting_breakup,
+            "payments": o.get("payments", []),
+            "paid_total": sum(p.get("amount", 0) for p in o.get("payments", [])),
         })
     return jsonify(result)
 
