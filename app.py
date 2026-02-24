@@ -139,7 +139,12 @@ def dashboard_kpis():
 @token_required
 def create_order():
     data = request.json
-    cust = data["customer"]
+    cust = {
+        "name": data.get("customer_name"),
+        "phone": data.get("phone"),
+        "address": data.get("address"),
+        "showroom": data.get("showroom")
+    }
     entries = data["entries"]
 
     customer = db.customers.find_one({"phone": cust["phone"]})
