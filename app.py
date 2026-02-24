@@ -25,7 +25,7 @@ CORS(
         "origins": [
             "https://fabricapp.quiltanddrapes.com",
             "https://nestjs-fabric-app.vercel.app",
-            "http://localhost:3000"
+            "http://localhost:4173"
         ]
     }},
     supports_credentials=True,
@@ -139,73 +139,95 @@ def dashboard_kpis():
 @token_required
 def create_order():
     data = request.json
-    cust = {
-        "name": data.get("customer_name"),
-        "phone": data.get("phone"),
-        "address": data.get("address"),
-        "showroom": data.get("showroom")
-    }
-    entries = data["entries"]
 
+    # ---- Validate required fields ----
+    if not data.get("customer_name") or not data.get("phone"):
+        return jsonify({"error": "Customer name and phone required"}), 400
+
+    cust = {
+        "name": data.get("customer_name", "").strip(),
+        "phone": data.get("phone", "").strip(),
+        "address": data.get("address", "").strip(),
+        "showroom": data.get("showroom", "").strip()
+    }
+
+    entries = data.get("entries", [])
+
+    # ---- Find or create customer ----
     customer = db.customers.find_one({"phone": cust["phone"]})
+
     if customer:
         cid = customer["_id"]
-        db.customers.update_one({"_id": cid}, {"$set": cust})
+        db.customers.update_one(
+            {"_id": cid},
+            {"$set": {**cust, "updated_at": datetime.utcnow()}}
+        )
     else:
         cid = db.customers.insert_one({
             **cust,
             "created_at": datetime.utcnow()
         }).inserted_id
 
+    # ---- ALWAYS store customer_id as ObjectId ----
     order = {
         "_id": str(uuid.uuid4()),
-        "customer_id": cid,
+        "customer_id": ObjectId(cid),
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
         "status": data.get("status", "Fabric Order Pending"),
         "due_date": data.get("due_date"),
         "tailor": data.get("tailor") or "None",
         "fitter": data.get("fitter") or "None",
-        "entries": entries
+        "entries": entries,
+        "payments": data.get("payments", []),
+        "total_bill": data.get("total_bill", 0)
     }
 
     db.orders.insert_one(order)
-    return jsonify({"status": "success"})
+
+    return jsonify({"status": "success", "order_id": order["_id"]})
 
 
 # ================= LIST ORDERS =================
 
-# ================= REPLACE LIST ORDERS =================
-
 @app.route("/api/orders/list")
 @token_required
 def list_orders():
-    # 1. Get the search query from the frontend
     search_query = request.args.get("search", "").strip()
-    
-    # 2. Build the MongoDB Filter
-    # Default: Show only active orders (Exclude "Completed")
+
     query_filter = {"status": {"$ne": "Completed"}}
-    
-    # If the user is searching, we ignore the "Completed" restriction to allow finding old orders
+
     if search_query:
-        # Search across customer names or phone numbers
         cust_ids = [c["_id"] for c in db.customers.find({
             "$or": [
                 {"name": {"$regex": search_query, "$options": "i"}},
                 {"phone": {"$regex": search_query, "$options": "i"}}
             ]
         }, {"_id": 1})]
-        
-        # Override filter to find specific customer's orders (including completed ones)
-        query_filter = {"customer_id": {"$in": [str(cid) for cid in cust_ids]}}
 
-    # 3. Optimized Aggregation Pipeline
+        query_filter = {"customer_id": {"$in": cust_ids}}
+
     pipeline = [
         {"$match": query_filter},
-        {"$addFields": {
-            "customer_id_obj": {"$toObjectId": "$customer_id"}
-        }},
+
+        {
+            "$addFields": {
+                "customer_id_obj": {
+                    "$cond": {
+                        "if": {"$eq": [{"$type": "$customer_id"}, "objectId"]},
+                        "then": "$customer_id",
+                        "else": {
+                            "$cond": {
+                                "if": {"$eq": [{"$type": "$customer_id"}, "string"]},
+                                "then": {"$toObjectId": "$customer_id"},
+                                "else": None
+                            }
+                        }
+                    }
+                }
+            }
+        },
+
         {
             "$lookup": {
                 "from": "customers",
@@ -214,21 +236,24 @@ def list_orders():
                 "as": "customer_info"
             }
         },
+
         {"$unwind": {"path": "$customer_info", "preserveNullAndEmptyArrays": True}},
         {"$sort": {"created_at": -1}},
-        {"$limit": 15} # <--- CRITICAL: Only send 15 orders to the frontend
+        {"$limit": 15}
     ]
-    
+
     orders = list(db.orders.aggregate(pipeline))
+
     out = []
-    
+
     for o in orders:
-        cust = o.get("customer_info", {})
+        cust = o.get("customer_info") or {}
         entries = o.get("entries") or []
+
         sqft = sum(float(e.get("SQFT", 0) or 0) for e in entries)
 
         out.append({
-            "order_id": o["_id"],
+            "order_id": str(o["_id"]),
             "name": cust.get("name"),
             "phone": cust.get("phone"),
             "status": o.get("status", ""),
@@ -238,8 +263,8 @@ def list_orders():
             "item_count": len(entries),
             "sqft": round(sqft, 2)
         })
-    return jsonify(out)
 
+    return jsonify(out)
 # ================= REPLACE get_order in app.py =================
 @app.route("/api/orders/<oid>")
 @token_required
@@ -282,45 +307,47 @@ def get_order(oid):
 @token_required
 def update_order(oid):
     data = request.json
-    
-    o = db.orders.find_one({"_id": oid})
-    if o and "customer" in data:
-        cust = data["customer"]
-        cid = o.get("customer_id")
-        update_fields = {
-            "name": cust.get("name"),
-            "phone": cust.get("phone"),
-            "address": cust.get("address"),
-            "showroom": cust.get("showroom"),
-            "payments": data.get("payments", []),
-            "updated_at": datetime.utcnow()
-        }
-        try:
-            db.customers.update_one({"_id": cid}, {"$set": update_fields})
-        except:
-            try:
-                db.customers.update_one({"_id": ObjectId(str(cid))}, {"$set": update_fields})
-            except:
-                pass
 
-    tailor = data.get("tailor") or "None"
-    fitter = data.get("fitter") or "None"
+    # ---- Check order exists ----
+    existing_order = db.orders.find_one({"_id": oid})
+    if not existing_order:
+        return jsonify({"error": "Order not found"}), 404
 
+    # ---- Handle customer update safely ----
+    cid = existing_order.get("customer_id")
+
+    # Convert to ObjectId if string
+    if isinstance(cid, str) and ObjectId.is_valid(cid):
+        cid = ObjectId(cid)
+
+    if cid:
+        db.customers.update_one(
+            {"_id": cid},
+            {"$set": {
+                "name": data.get("customer_name"),
+                "phone": data.get("phone"),
+                "address": data.get("address"),
+                "showroom": data.get("showroom"),
+                "updated_at": datetime.utcnow()
+            }}
+        )
+
+    # ---- Update order safely ----
     db.orders.update_one(
         {"_id": oid},
         {"$set": {
-            "entries": data.get("entries"),
+            "entries": data.get("entries", []),
             "status": data.get("status"),
             "due_date": data.get("due_date"),
             "tailor": data.get("tailor") or "None",
             "fitter": data.get("fitter") or "None",
-            "payments": data.get("payments", []), # Add this line
-            "total_bill": data.get("total_bill", 0), # Add this line
+            "payments": data.get("payments", []),
+            "total_bill": data.get("total_bill", 0),
             "updated_at": datetime.utcnow()
         }}
     )
-    return jsonify({"status": "updated"})
 
+    return jsonify({"status": "updated"})
 
 # ================= DELETE ORDER =================
 
@@ -394,10 +421,11 @@ def billing_data():
         fitting_breakup = []
 
         for e in o.get("entries", []):
-            stitch_type = (e.get("Stitch") or "").strip()
-            panels = int(float(e.get("Panels") or 0))
-            sqft = float(e.get("SQFT") or 0)
-            window_name = (e.get("Window") or "").strip()
+            # SUPPORT BOTH OLD & NEW SCHEMA
+            stitch_type = (e.get("stitch_type") or e.get("Stitch") or "").strip()
+            panels = int(float(e.get("panels") or e.get("Panels") or 0))
+            sqft = float(e.get("sqft") or e.get("SQFT") or 0)
+            window_name = (e.get("window_name") or e.get("Window") or "").strip()
 
             # Fitting calculation
             if window_name and fitter not in ["None", ""]:
