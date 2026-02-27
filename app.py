@@ -367,8 +367,25 @@ def billing_data():
     if request.user["role"] != "admin":
         return jsonify({"error": "Unauthorized"}), 403
 
+    start_date_str = request.args.get("start_date")
+    end_date_str = request.args.get("end_date")
+    
+    match_filter = {}
+    if start_date_str and end_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+            # End date should include the whole day
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d") + timedelta(days=1)
+            match_filter["created_at"] = {"$gte": start_date, "$lt": end_date}
+        except ValueError:
+            pass
+
     # ================= FIXED BILLING PIPELINE =================
-    pipeline = [
+    pipeline = []
+    if match_filter:
+        pipeline.append({"$match": match_filter})
+        
+    pipeline.extend([
         {
             "$addFields": {
                 # Fixes the type mismatch: converts String IDs to ObjectIds
@@ -385,7 +402,8 @@ def billing_data():
             # Only fetch necessary fields to keep the query fast
             "$project": {
                 "customer_id_obj": 1, "tailor": 1, "fitter": 1, 
-                "entries": 1, "payment_status": 1, "status": 1
+                "entries": 1, "payment_status": 1, "status": 1,
+                "payments": 1, "total_bill": 1, "created_at": 1
             }
         },
         {
@@ -403,7 +421,7 @@ def billing_data():
                 "preserveNullAndEmptyArrays": True
             }
         }
-    ]
+    ])
     # ... rest of your logic remains the same
     
     orders = list(db.orders.aggregate(pipeline))
@@ -464,8 +482,23 @@ def billing_data():
             "fitting_breakup": fitting_breakup,
             "payments": o.get("payments", []),
             "paid_total": sum(p.get("amount", 0) for p in o.get("payments", [])),
+            "total_bill": o.get("total_bill", 0)
         })
     return jsonify(result)
+
+@app.route("/api/billing/<oid>/status", methods=["PATCH"])
+@token_required
+def update_billing_status(oid):
+    if request.user["role"] != "admin":
+        return jsonify({"error": "Unauthorized"}), 403
+    
+    data = request.json
+    new_status = data.get("payment_status")
+    if new_status not in ["Paid", "Pending"]:
+        return jsonify({"error": "Invalid status"}), 400
+        
+    db.orders.update_one({"_id": oid}, {"$set": {"payment_status": new_status}})
+    return jsonify({"status": "updated"})
 
 # ================= AI VISUALIZER (SERVER-SIDE) =================
 
