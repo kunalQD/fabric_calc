@@ -388,10 +388,15 @@ def billing_data():
     pipeline.extend([
         {
             "$addFields": {
-                # Fixes the type mismatch: converts String IDs to ObjectIds
+                # Fixes the type mismatch: converts String IDs to ObjectIds if they look like one
                 "customer_id_obj": {
                     "$cond": {
-                        "if": {"$eq": [{"$type": "$customer_id"}, "string"]},
+                        "if": {
+                            "$and": [
+                                {"$eq": [{"$type": "$customer_id"}, "string"]},
+                                {"$eq": [{"$strLenCP": "$customer_id"}, 24]}
+                            ]
+                        },
                         "then": {"$toObjectId": "$customer_id"},
                         "else": "$customer_id"
                     }
@@ -428,7 +433,7 @@ def billing_data():
     result = []
     
     # Pre-define rates for faster access
-    dev_rates = {"Pleated": 90, "Eyelet": 130, "Ripple": 120}
+    dev_rates = {"Pleated": 90, "Eyelet": 150, "Ripple": 120}
 
     for o in orders:
         cust = o.get("customer", {})
@@ -439,36 +444,39 @@ def billing_data():
         fitting_breakup = []
 
         for e in o.get("entries", []):
-            # SUPPORT BOTH OLD & NEW SCHEMA
-            stitch_type = (e.get("stitch_type") or e.get("Stitch") or "").strip()
-            panels = int(float(e.get("panels") or e.get("Panels") or 0))
-            sqft = float(e.get("sqft") or e.get("SQFT") or 0)
-            window_name = (e.get("window_name") or e.get("Window") or "").strip()
+            try:
+                # SUPPORT BOTH OLD & NEW SCHEMA
+                stitch_type = (e.get("stitch_type") or e.get("Stitch") or "").strip()
+                panels = int(float(e.get("panels") or e.get("Panels") or 0))
+                sqft = float(e.get("sqft") or e.get("SQFT") or 0)
+                window_name = (e.get("window_name") or e.get("Window") or "").strip()
 
-            # Fitting calculation
-            if window_name and fitter not in ["None", ""]:
-                rate = 200 if "Double" in window_name else 150
-                fitting_total += rate
-                fitting_breakup.append({"type": window_name, "qty": 1, "rate": rate, "amount": rate})
+                # Fitting calculation
+                if window_name and fitter not in ["None", ""]:
+                    rate = 200 if "Double" in window_name else 150
+                    fitting_total += rate
+                    fitting_breakup.append({"type": window_name, "qty": 1, "rate": rate, "amount": rate})
 
-            # Stitching calculation
-            rate = amount = 0
-            if tailor not in ["None", ""]:
-                if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
-                    if panels > 0:
-                        rate = dev_rates.get(stitch_type, 0) if tailor == "Dev" else 90 if tailor == "Dinesh" else 0
-                        amount = panels * rate
-                elif "Roman" in stitch_type and sqft > 0:
-                    rate = 125 if tailor == "Dev" else 100 if tailor == "Dinesh" else 0
-                    amount = sqft * rate
+                # Stitching calculation
+                rate = amount = 0
+                if tailor not in ["None", ""]:
+                    if stitch_type in ["Pleated", "Eyelet", "Ripple"]:
+                        if panels > 0:
+                            rate = dev_rates.get(stitch_type, 0) if tailor == "Dev" else 90 if tailor == "Dinesh" else 0
+                            amount = panels * rate
+                    elif "Roman" in stitch_type and sqft > 0:
+                        rate = 125 if tailor == "Dev" else 100 if tailor == "Dinesh" else 0
+                        amount = sqft * rate
 
-            if amount > 0:
-                qty_val = round(sqft, 2) if "Roman" in stitch_type else panels
-                stitching_total += amount
-                stitching_breakup.append({
-                    "type": stitch_type, "subtype": window_name, 
-                    "qty": qty_val, "rate": rate, "amount": amount
-                })
+                if amount > 0:
+                    qty_val = round(sqft, 2) if "Roman" in stitch_type else panels
+                    stitching_total += amount
+                    stitching_breakup.append({
+                        "type": stitch_type, "subtype": window_name, 
+                        "qty": qty_val, "rate": rate, "amount": amount
+                    })
+            except (ValueError, TypeError):
+                continue
 
         result.append({
             "order_id": str(o.get("_id")),
@@ -481,7 +489,7 @@ def billing_data():
             "stitching_breakup": stitching_breakup,
             "fitting_breakup": fitting_breakup,
             "payments": o.get("payments", []),
-            "paid_total": sum(p.get("amount", 0) for p in o.get("payments", [])),
+            "paid_total": sum(float(p.get("amount", 0) or 0) for p in o.get("payments", [])),
             "total_bill": o.get("total_bill", 0)
         })
     return jsonify(result)
@@ -497,8 +505,37 @@ def update_billing_status(oid):
     if new_status not in ["Paid", "Pending"]:
         return jsonify({"error": "Invalid status"}), 400
         
-    db.orders.update_one({"_id": oid}, {"$set": {"payment_status": new_status}})
+    result = db.orders.update_one({"_id": oid}, {"$set": {"payment_status": new_status}})
+    
+    if result.matched_count == 0:
+        # Fallback for ObjectId if it's not a UUID string
+        if ObjectId.is_valid(oid):
+            db.orders.update_one({"_id": ObjectId(oid)}, {"$set": {"payment_status": new_status}})
+            
     return jsonify({"status": "updated"})
+
+@app.route("/api/orders/<oid>/payments", methods=["POST"])
+@token_required
+def add_order_payment(oid):
+    data = request.json
+    amount = float(data.get("amount", 0))
+    date = data.get("date", datetime.utcnow().strftime("%Y-%m-%d"))
+    method = data.get("method", "Cash")
+    
+    payment = {"amount": amount, "date": date, "method": method}
+    
+    result = db.orders.update_one(
+        {"_id": oid}, 
+        {"$push": {"payments": payment}, "$set": {"updated_at": datetime.utcnow()}}
+    )
+    
+    if result.matched_count == 0 and ObjectId.is_valid(oid):
+         db.orders.update_one(
+            {"_id": ObjectId(oid)}, 
+            {"$push": {"payments": payment}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+        
+    return jsonify({"status": "payment_recorded"})
 
 # ================= AI VISUALIZER (SERVER-SIDE) =================
 
