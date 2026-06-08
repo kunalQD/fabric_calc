@@ -168,15 +168,23 @@ def create_order():
             "created_at": datetime.utcnow()
         }).inserted_id
 
+    status = data.get("status") or "Fabric Order Pending"
+    completed_at = data.get("completed_at") or ""
+    if status.strip().lower() == "completed":
+        if not completed_at:
+            completed_at = datetime.utcnow().isoformat()
+    else:
+        completed_at = ""
+
     # ---- ALWAYS store customer_id as ObjectId ----
     order = {
         "_id": str(uuid.uuid4()),
         "customer_id": ObjectId(cid),
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
-        "status": data.get("status", "Fabric Order Pending"),
+        "status": status,
         "due_date": data.get("due_date"),
-        "completed_at": data.get("completed_at", ""),
+        "completed_at": completed_at,
         "tailor": data.get("tailor") or "None",
         "fitter": data.get("fitter") or "None",
         "entries": entries,
@@ -267,6 +275,18 @@ def list_orders():
 
         sqft = sum(float(e.get("SQFT", 0) or 0) for e in entries)
 
+        # Dynamic fallback for completed orders
+        completed_at = o.get("completed_at") or ""
+        if o.get("status", "").strip().lower() == "completed" and not completed_at:
+            fallback_dt = o.get("updated_at") or o.get("created_at")
+            if fallback_dt:
+                if isinstance(fallback_dt, datetime):
+                    completed_at = fallback_dt.isoformat()
+                else:
+                    completed_at = str(fallback_dt)
+            else:
+                completed_at = datetime.utcnow().isoformat()
+
         out.append({
             "order_id": str(o["_id"]),
             "name": cust.get("name"),
@@ -274,7 +294,7 @@ def list_orders():
             "status": o.get("status", ""),
             "created_at": o.get("created_at"),
             "due_date": o.get("due_date"),
-            "completed_at": o.get("completed_at", ""),
+            "completed_at": completed_at,
             "showroom": cust.get("showroom", ""),
             "item_count": len(entries),
             "sqft": round(sqft, 2)
@@ -302,6 +322,17 @@ def get_order(oid):
         cust = {}
 
     # Map legacy field names to frontend expected names
+    completed_at = o.get("completed_at") or ""
+    if o.get("status", "").strip().lower() == "completed" and not completed_at:
+        fallback_dt = o.get("updated_at") or o.get("created_at")
+        if fallback_dt:
+            if isinstance(fallback_dt, datetime):
+                completed_at = fallback_dt.isoformat()
+            else:
+                completed_at = str(fallback_dt)
+        else:
+            completed_at = datetime.utcnow().isoformat()
+
     return jsonify({
         "order_id": o["_id"],
         "customer_name": cust.get("name", "Unknown Client"),
@@ -310,7 +341,7 @@ def get_order(oid):
         "showroom": cust.get("showroom", ""),
         "status": o.get("status", "Fabric Order Pending"),
         "due_date": o.get("due_date", ""),
-        "completed_at": o.get("completed_at", ""),
+        "completed_at": completed_at,
         "tailor": o.get("tailor") or "None",
         "fitter": o.get("fitter") or "None",
         "entries": o.get("entries", []),
@@ -350,13 +381,25 @@ def update_order(oid):
         )
 
     # ---- Update order safely ----
+    status = data.get("status") or ""
+    completed_at = data.get("completed_at") or ""
+    if status.strip().lower() == "completed":
+        if not completed_at:
+            existing_completed_at = existing_order.get("completed_at") or ""
+            if existing_completed_at:
+                completed_at = existing_completed_at
+            else:
+                completed_at = datetime.utcnow().isoformat()
+    else:
+        completed_at = ""
+
     db.orders.update_one(
         {"_id": oid},
         {"$set": {
             "entries": data.get("entries", []),
-            "status": data.get("status"),
+            "status": status,
             "due_date": data.get("due_date"),
-            "completed_at": data.get("completed_at", ""),
+            "completed_at": completed_at,
             "tailor": data.get("tailor") or "None",
             "fitter": data.get("fitter") or "None",
             "payments": data.get("payments", []),
