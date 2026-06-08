@@ -176,6 +176,7 @@ def create_order():
         "updated_at": datetime.utcnow(),
         "status": data.get("status", "Fabric Order Pending"),
         "due_date": data.get("due_date"),
+        "completed_at": data.get("completed_at", ""),
         "tailor": data.get("tailor") or "None",
         "fitter": data.get("fitter") or "None",
         "entries": entries,
@@ -198,14 +199,28 @@ def list_orders():
     query_filter = {"status": {"$ne": "Completed"}}
 
     if search_query:
-        cust_ids = [c["_id"] for c in db.customers.find({
+        # Match customers by name, phone, or showroom
+        cust_ids = []
+        for c in db.customers.find({
             "$or": [
                 {"name": {"$regex": search_query, "$options": "i"}},
-                {"phone": {"$regex": search_query, "$options": "i"}}
+                {"phone": {"$regex": search_query, "$options": "i"}},
+                {"showroom": {"$regex": search_query, "$options": "i"}}
             ]
-        }, {"_id": 1})]
+        }, {"_id": 1}):
+            cust_ids.append(c["_id"])
+            cust_ids.append(str(c["_id"]))
 
-        query_filter = {"customer_id": {"$in": cust_ids}}
+        # Build advanced order filters
+        query_filter = {
+            "$or": [
+                {"customer_id": {"$in": cust_ids}},
+                {"_id": {"$regex": search_query, "$options": "i"}},
+                {"status": {"$regex": search_query, "$options": "i"}},
+                {"tailor": {"$regex": search_query, "$options": "i"}},
+                {"fitter": {"$regex": search_query, "$options": "i"}}
+            ]
+        }
 
     pipeline = [
         {"$match": query_filter},
@@ -239,7 +254,7 @@ def list_orders():
 
         {"$unwind": {"path": "$customer_info", "preserveNullAndEmptyArrays": True}},
         {"$sort": {"created_at": -1}},
-        {"$limit": 15}
+        {"$limit": 150 if search_query else 50}
     ]
 
     orders = list(db.orders.aggregate(pipeline))
@@ -259,6 +274,7 @@ def list_orders():
             "status": o.get("status", ""),
             "created_at": o.get("created_at"),
             "due_date": o.get("due_date"),
+            "completed_at": o.get("completed_at", ""),
             "showroom": cust.get("showroom", ""),
             "item_count": len(entries),
             "sqft": round(sqft, 2)
@@ -294,6 +310,7 @@ def get_order(oid):
         "showroom": cust.get("showroom", ""),
         "status": o.get("status", "Fabric Order Pending"),
         "due_date": o.get("due_date", ""),
+        "completed_at": o.get("completed_at", ""),
         "tailor": o.get("tailor") or "None",
         "fitter": o.get("fitter") or "None",
         "entries": o.get("entries", []),
@@ -339,6 +356,7 @@ def update_order(oid):
             "entries": data.get("entries", []),
             "status": data.get("status"),
             "due_date": data.get("due_date"),
+            "completed_at": data.get("completed_at", ""),
             "tailor": data.get("tailor") or "None",
             "fitter": data.get("fitter") or "None",
             "payments": data.get("payments", []),
@@ -433,7 +451,7 @@ def billing_data():
     result = []
     
     # Pre-define rates for faster access
-    dev_rates = {"Pleated": 90, "Eyelet": 150, "Ripple": 120}
+    dev_rates = {"Pleated": 90, "Eyelet": 130, "Ripple": 120}
 
     for o in orders:
         cust = o.get("customer", {})
