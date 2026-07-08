@@ -659,6 +659,115 @@ def generate_ai_preview():
         print(f"CRITICAL BACKEND ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+# ================= QUOTATIONS ENDPOINTS =================
+
+@app.route("/api/quotations/list", methods=["GET"])
+@token_required
+def list_quotations():
+    try:
+        search_query = request.args.get("search", "").strip()
+        query = {}
+        if search_query:
+            query["$or"] = [
+                {"customer_name": {"$regex": search_query, "$options": "i"}},
+                {"phone": {"$regex": search_query, "$options": "i"}},
+                {"id": {"$regex": search_query, "$options": "i"}}
+            ]
+        
+        quotes = list(db.quotations.find(query).sort("date", -1))
+        for q in quotes:
+            q["_id"] = str(q["_id"])
+        return jsonify(quotes)
+    except Exception as e:
+        print(f"Error listing quotations: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/quotations/<qid>", methods=["GET"])
+@token_required
+def get_quotation(qid):
+    try:
+        q = db.quotations.find_one({"id": qid})
+        if not q:
+            try:
+                q = db.quotations.find_one({"_id": ObjectId(qid)})
+            except:
+                pass
+        if not q:
+            return jsonify({"error": "Quotation not found"}), 404
+        
+        q["_id"] = str(q["_id"])
+        return jsonify(q)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/quotations", methods=["POST"])
+@token_required
+def create_quotation():
+    try:
+        data = request.json
+        if not data.get("customer_name"):
+            return jsonify({"error": "Customer name is required"}), 400
+        
+        qid = data.get("id")
+        if not qid or qid.startswith("temp_"):
+            qid = f"QD-Q-{uuid.uuid4().hex[:6].upper()}"
+        
+        payload = {
+            "id": qid,
+            "customer_name": data.get("customer_name"),
+            "phone": data.get("phone", ""),
+            "date": data.get("date") or datetime.utcnow().isoformat(),
+            "items": data.get("items", []),
+            "misc_charges": data.get("misc_charges", []),
+            "fabric_discount_percent": data.get("fabric_discount_percent", 0),
+            "additional_discount": data.get("additional_discount", 0),
+            "gst_percent": data.get("gst_percent", 0),
+            "terms_conditions": data.get("terms_conditions", ""),
+            "total_amount": data.get("total_amount", 0)
+        }
+        
+        db.quotations.insert_one(payload)
+        return jsonify({"status": "created", "id": qid})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/quotations/<qid>", methods=["PUT"])
+@token_required
+def update_quotation(qid):
+    try:
+        data = request.json
+        payload = {
+            "customer_name": data.get("customer_name"),
+            "phone": data.get("phone", ""),
+            "date": data.get("date") or datetime.utcnow().isoformat(),
+            "items": data.get("items", []),
+            "misc_charges": data.get("misc_charges", []),
+            "fabric_discount_percent": data.get("fabric_discount_percent", 0),
+            "additional_discount": data.get("additional_discount", 0),
+            "gst_percent": data.get("gst_percent", 0),
+            "terms_conditions": data.get("terms_conditions", ""),
+            "total_amount": data.get("total_amount", 0)
+        }
+        
+        result = db.quotations.update_one({"id": qid}, {"$set": payload})
+        if result.matched_count == 0:
+            return jsonify({"error": "Quotation not found"}), 404
+            
+        return jsonify({"status": "updated"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/quotations/<qid>", methods=["DELETE"])
+@token_required
+def delete_quotation(qid):
+    try:
+        result = db.quotations.delete_one({"id": qid})
+        if result.deleted_count == 0:
+            return jsonify({"error": "Quotation not found"}), 404
+        return jsonify({"status": "deleted"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/images/gridfs/<fid>")
 def get_gridfs_image(fid):
     try:
