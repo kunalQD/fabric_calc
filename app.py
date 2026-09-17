@@ -23,9 +23,13 @@ app = Flask(__name__)
 CORS(
     app,
     resources={r"/api/*": {
-        "origins": "*"
+        "origins": [
+            "https://fabricapp.quiltanddrapes.com",
+            "https://nestjs-fabric-app.vercel.app",
+            "http://localhost:4173"
+        ]
     }},
-    supports_credentials=False,
+    supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
