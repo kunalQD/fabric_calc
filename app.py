@@ -13,6 +13,7 @@ import jwt
 from gridfs import GridFS
 import google.generativeai as genai
 import base64
+import re
 
 # ================= APP CONFIG =================
 
@@ -28,7 +29,7 @@ CORS(
             "http://localhost:4173"
         ]
     }},
-    supports_credentials=True,
+    supports_credentials=False,
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
@@ -136,25 +137,35 @@ def dashboard_kpis():
 # ================= CREATE ORDER =================
 
 @app.route("/api/orders", methods=["POST"])
+@app.route("/orders", methods=["POST"])
 @token_required
 def create_order():
     data = request.json
 
     # ---- Validate required fields ----
-    if not data.get("customer_name") or not data.get("phone"):
-        return jsonify({"error": "Customer name and phone required"}), 400
+    if not data.get("customer_name") and not data.get("name"):
+        return jsonify({"error": "Customer name required"}), 400
+
+    cust_name = (data.get("customer_name") or data.get("name") or "").strip()
+    cust_phone = (data.get("phone") or "").strip()
+    cust_address = (data.get("address") or "").strip()
+    cust_showroom = (data.get("showroom") or "").strip()
 
     cust = {
-        "name": data.get("customer_name", "").strip(),
-        "phone": data.get("phone", "").strip(),
-        "address": data.get("address", "").strip(),
-        "showroom": data.get("showroom", "").strip()
+        "name": cust_name,
+        "phone": cust_phone,
+        "address": cust_address,
+        "showroom": cust_showroom
     }
 
     entries = data.get("entries", [])
 
     # ---- Find or create customer ----
-    customer = db.customers.find_one({"phone": cust["phone"]})
+    customer = None
+    if cust_phone:
+        customer = db.customers.find_one({"phone": cust_phone})
+    if not customer and cust_name:
+        customer = db.customers.find_one({"name": cust_name})
 
     if customer:
         cid = customer["_id"]
@@ -176,24 +187,70 @@ def create_order():
     else:
         completed_at = ""
 
-    # ---- ALWAYS store customer_id as ObjectId ----
+    order_id = data.get("order_id") or data.get("_id") or str(uuid.uuid4())
+
+    # Auto-link quotation if customer has a saved quotation and order doesn't have quotation items yet
+    quotation_data = data.get("quotation_data")
+    quotation_id = data.get("quotation_id", "")
+    if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
+        found_quote = None
+        if quotation_id:
+            found_quote = db.quotations.find_one({"id": quotation_id})
+        if not found_quote and cust_phone:
+            found_quote = db.quotations.find_one({"phone": cust_phone})
+        if not found_quote and cust_name:
+            found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
+        if found_quote:
+            quotation_data = {
+                "id": found_quote.get("id"),
+                "customer_name": found_quote.get("customer_name"),
+                "phone": found_quote.get("phone", ""),
+                "date": found_quote.get("date", ""),
+                "items": found_quote.get("items", []),
+                "additional_discount": float(found_quote.get("additional_discount", 0) or 0),
+                "gst_percent": float(found_quote.get("gst_percent", 0) or 0),
+                "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
+                "total_amount": float(found_quote.get("total_amount", 0) or 0)
+            }
+            quotation_id = found_quote.get("id", "")
+
+    total_bill = float(data.get("total_bill", 0) or 0)
+    if total_bill == 0 and quotation_data and quotation_data.get("total_amount"):
+        total_bill = float(quotation_data.get("total_amount", 0) or 0)
+
+    # ---- ALWAYS store customer fields directly on order as well as customer_id ----
     order = {
-        "_id": str(uuid.uuid4()),
-        "customer_id": ObjectId(cid),
+        "_id": order_id,
+        "order_id": order_id,
+        "customer_id": ObjectId(cid) if cid and ObjectId.is_valid(str(cid)) else str(cid),
+        "customer_name": cust_name,
+        "name": cust_name,
+        "phone": cust_phone,
+        "address": cust_address,
+        "showroom": cust_showroom,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
         "status": status,
+        "status_dates": data.get("status_dates", {}),
+        "status_history": data.get("status_history", []),
+        "measurement_date": data.get("measurement_date", ""),
+        "booking_amount_taken": bool(data.get("booking_amount_taken")),
+        "booking_amount": float(data.get("booking_amount", 0) or 0),
+        "booking_date": data.get("booking_date", ""),
+        "products": data.get("products", ["Curtains"]),
         "due_date": data.get("due_date"),
         "completed_at": completed_at,
         "delay_comment": data.get("delay_comment", ""),
         "tailor": data.get("tailor") or "None",
         "fitter": data.get("fitter") or "None",
         "entries": entries,
+        "quotation_data": quotation_data,
+        "quotation_id": quotation_id,
         "payments": data.get("payments", []),
-        "total_bill": data.get("total_bill", 0)
+        "total_bill": total_bill
     }
 
-    db.orders.insert_one(order)
+    db.orders.update_one({"_id": order_id}, {"$set": order}, upsert=True)
 
     return jsonify({"status": "success", "order_id": order["_id"]})
 
@@ -204,8 +261,20 @@ def create_order():
 @token_required
 def list_orders():
     search_query = request.args.get("search", "").strip()
+    status_query = request.args.get("status", "").strip()
+    include_completed_str = request.args.get("include_completed", "true").strip().lower()
+    include_completed = include_completed_str in ["true", "1", "yes"]
 
-    query_filter = {"status": {"$ne": "Completed"}}
+    # Pagination params
+    page = int(request.args.get("page", 1) or 1)
+    limit = int(request.args.get("limit", 0) or 0) # 0 means all (up to 1000)
+
+    query_filter = {}
+
+    if status_query and status_query.upper() != "ALL":
+        query_filter["status"] = status_query
+    elif not include_completed:
+        query_filter["status"] = {"$ne": "Completed"}
 
     if search_query:
         # Match customers by name, phone, or showroom
@@ -220,16 +289,24 @@ def list_orders():
             cust_ids.append(c["_id"])
             cust_ids.append(str(c["_id"]))
 
-        # Build advanced order filters
-        query_filter = {
-            "$or": [
-                {"customer_id": {"$in": cust_ids}},
-                {"_id": {"$regex": search_query, "$options": "i"}},
-                {"status": {"$regex": search_query, "$options": "i"}},
-                {"tailor": {"$regex": search_query, "$options": "i"}},
-                {"fitter": {"$regex": search_query, "$options": "i"}}
-            ]
-        }
+        # Build search or conditions safely
+        or_conditions = [
+            {"customer_id": {"$in": cust_ids}},
+            {"status": {"$regex": search_query, "$options": "i"}},
+            {"tailor": {"$regex": search_query, "$options": "i"}},
+            {"fitter": {"$regex": search_query, "$options": "i"}},
+            {"customer_name": {"$regex": search_query, "$options": "i"}},
+            {"phone": {"$regex": search_query, "$options": "i"}},
+            {"showroom": {"$regex": search_query, "$options": "i"}}
+        ]
+
+        if ObjectId.is_valid(search_query):
+            or_conditions.append({"_id": ObjectId(search_query)})
+
+        if query_filter:
+            query_filter = {"$and": [query_filter, {"$or": or_conditions}]}
+        else:
+            query_filter = {"$or": or_conditions}
 
     pipeline = [
         {"$match": query_filter},
@@ -262,9 +339,16 @@ def list_orders():
         },
 
         {"$unwind": {"path": "$customer_info", "preserveNullAndEmptyArrays": True}},
-        {"$sort": {"created_at": -1}},
-        {"$limit": 150 if search_query else 50}
+        {"$sort": {"created_at": -1}}
     ]
+
+    if limit > 0:
+        skip_count = max(0, (page - 1) * limit)
+        if skip_count > 0:
+            pipeline.append({"$skip": skip_count})
+        pipeline.append({"$limit": limit})
+    else:
+        pipeline.append({"$limit": 1000})
 
     orders = list(db.orders.aggregate(pipeline))
 
@@ -288,26 +372,104 @@ def list_orders():
             else:
                 completed_at = datetime.utcnow().isoformat()
 
+        cust_name = cust.get("name") or o.get("customer_name") or o.get("name") or "Unknown Client"
+        cust_phone = cust.get("phone") or o.get("phone", "")
+        cust_address = cust.get("address") or o.get("address", "")
+        cust_showroom = cust.get("showroom") or o.get("showroom", "")
+
+        quotation_data = o.get("quotation_data")
+        quotation_id = o.get("quotation_id", "")
+        if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
+            found_quote = None
+            if quotation_id:
+                found_quote = db.quotations.find_one({"id": quotation_id})
+            if not found_quote and cust_phone:
+                found_quote = db.quotations.find_one({"phone": cust_phone})
+            if not found_quote and cust_name and cust_name != "Unknown Client":
+                found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
+            if found_quote:
+                quotation_data = {
+                    "id": found_quote.get("id"),
+                    "customer_name": found_quote.get("customer_name"),
+                    "phone": found_quote.get("phone", ""),
+                    "date": found_quote.get("date", ""),
+                    "items": found_quote.get("items", []),
+                    "additional_discount": float(found_quote.get("additional_discount", 0) or 0),
+                    "gst_percent": float(found_quote.get("gst_percent", 0) or 0),
+                    "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
+                    "total_amount": float(found_quote.get("total_amount", 0) or 0)
+                }
+                quotation_id = found_quote.get("id", "")
+
+        total_bill = float(o.get("total_bill", 0) or 0)
+        if total_bill == 0 and quotation_data and quotation_data.get("total_amount"):
+            total_bill = float(quotation_data.get("total_amount", 0) or 0)
+
+        # Check if booking advance / deposit is in payments
+        order_payments = o.get("payments", [])
+        booking_taken = bool(o.get("booking_amount_taken", False))
+        booking_amt = float(o.get("booking_amount", 0) or 0)
+        booking_dt = o.get("booking_date", "")
+
+        if not booking_amt and order_payments:
+            for p in order_payments:
+                meth = str(p.get("method", "")).lower()
+                ref = str(p.get("reference", "")).lower()
+                if "booking" in meth or "advance" in meth or "booking" in ref or "advance" in ref or "deposit" in meth or "deposit" in ref:
+                    booking_amt = float(p.get("amount", 0) or 0)
+                    booking_dt = p.get("date", "")
+                    booking_taken = True
+                    break
+            if not booking_amt and len(order_payments) > 0 and float(order_payments[0].get("amount", 0) or 0) > 0:
+                booking_amt = float(order_payments[0].get("amount", 0) or 0)
+                booking_dt = order_payments[0].get("date", "")
+                booking_taken = True
+
+        if booking_amt > 0:
+            booking_taken = True
+
         out.append({
             "order_id": str(o["_id"]),
-            "name": cust.get("name"),
-            "phone": cust.get("phone"),
+            "name": cust_name,
+            "customer_name": cust_name,
+            "phone": cust_phone,
+            "address": cust_address,
             "status": o.get("status", ""),
+            "status_dates": o.get("status_dates", {}),
+            "status_history": o.get("status_history", []),
             "created_at": o.get("created_at"),
             "due_date": o.get("due_date"),
+            "measurement_date": o.get("measurement_date", ""),
+            "booking_amount_taken": booking_taken,
+            "booking_amount": booking_amt,
+            "booking_date": booking_dt,
+            "products": o.get("products", ["Curtains"]),
             "completed_at": completed_at,
             "delay_comment": o.get("delay_comment", ""),
-            "showroom": cust.get("showroom", ""),
+            "showroom": cust_showroom,
+            "tailor": o.get("tailor") or "None",
+            "fitter": o.get("fitter") or "None",
             "item_count": len(entries),
+            "entries": entries,
+            "quotation_data": quotation_data,
+            "quotation_id": quotation_id,
+            "payments": order_payments,
+            "total_bill": total_bill,
             "sqft": round(sqft, 2)
         })
 
     return jsonify(out)
 # ================= REPLACE get_order in app.py =================
 @app.route("/api/orders/<oid>")
+@app.route("/orders/<oid>")
 @token_required
 def get_order(oid):
     o = db.orders.find_one({"_id": oid})
+    if not o:
+        o = db.orders.find_one({"order_id": oid})
+    if not o and ObjectId.is_valid(oid):
+        o = db.orders.find_one({"_id": ObjectId(oid)})
+
     if not o:
         return jsonify({"error": "Not found"}), 404
 
@@ -315,13 +477,46 @@ def get_order(oid):
     cid = o.get("customer_id")
     cust = None
     if cid:
-        # Try finding by ObjectId first, then by String
         cust = db.customers.find_one({"_id": ObjectId(str(cid))}) if ObjectId.is_valid(str(cid)) else None
         if not cust:
             cust = db.customers.find_one({"_id": cid})
 
     if not cust:
         cust = {}
+
+    cust_name = cust.get("name") or o.get("customer_name") or o.get("name") or "Unknown Client"
+    cust_phone = cust.get("phone") or o.get("phone", "")
+    cust_address = cust.get("address") or o.get("address", "")
+    cust_showroom = cust.get("showroom") or o.get("showroom", "")
+
+    # Auto-link quotation if customer has a saved quotation and order doesn't have quotation items yet
+    quotation_data = o.get("quotation_data")
+    quotation_id = o.get("quotation_id", "")
+    if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
+        found_quote = None
+        if quotation_id:
+            found_quote = db.quotations.find_one({"id": quotation_id})
+        if not found_quote and cust_phone:
+            found_quote = db.quotations.find_one({"phone": cust_phone})
+        if not found_quote and cust_name and cust_name != "Unknown Client":
+            found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
+        if found_quote:
+            quotation_data = {
+                "id": found_quote.get("id"),
+                "customer_name": found_quote.get("customer_name"),
+                "phone": found_quote.get("phone", ""),
+                "date": found_quote.get("date", ""),
+                "items": found_quote.get("items", []),
+                "additional_discount": float(found_quote.get("additional_discount", 0) or 0),
+                "gst_percent": float(found_quote.get("gst_percent", 0) or 0),
+                "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
+                "total_amount": float(found_quote.get("total_amount", 0) or 0)
+            }
+            quotation_id = found_quote.get("id", "")
+
+    total_bill = float(o.get("total_bill", 0) or 0)
+    if total_bill == 0 and quotation_data and quotation_data.get("total_amount"):
+        total_bill = float(quotation_data.get("total_amount", 0) or 0)
 
     # Map legacy field names to frontend expected names
     completed_at = o.get("completed_at") or ""
@@ -335,26 +530,59 @@ def get_order(oid):
         else:
             completed_at = datetime.utcnow().isoformat()
 
+    order_payments = o.get("payments", [])
+    booking_taken = bool(o.get("booking_amount_taken", False))
+    booking_amt = float(o.get("booking_amount", 0) or 0)
+    booking_dt = o.get("booking_date", "")
+
+    if not booking_amt and order_payments:
+        for p in order_payments:
+            meth = str(p.get("method", "")).lower()
+            ref = str(p.get("reference", "")).lower()
+            if "booking" in meth or "advance" in meth or "booking" in ref or "advance" in ref or "deposit" in meth or "deposit" in ref:
+                booking_amt = float(p.get("amount", 0) or 0)
+                booking_dt = p.get("date", "")
+                booking_taken = True
+                break
+        if not booking_amt and len(order_payments) > 0 and float(order_payments[0].get("amount", 0) or 0) > 0:
+            booking_amt = float(order_payments[0].get("amount", 0) or 0)
+            booking_dt = order_payments[0].get("date", "")
+            booking_taken = True
+
+    if booking_amt > 0:
+        booking_taken = True
+
     return jsonify({
-        "order_id": o["_id"],
-        "customer_name": cust.get("name", "Unknown Client"),
-        "phone": cust.get("phone", ""),
-        "address": cust.get("address", ""),
-        "showroom": cust.get("showroom", ""),
+        "order_id": str(o.get("_id")),
+        "customer_name": cust_name,
+        "name": cust_name,
+        "phone": cust_phone,
+        "address": cust_address,
+        "showroom": cust_showroom,
         "status": o.get("status", "Fabric Order Pending"),
+        "status_dates": o.get("status_dates", {}),
+        "status_history": o.get("status_history", []),
         "due_date": o.get("due_date", ""),
+        "measurement_date": o.get("measurement_date", ""),
+        "booking_amount_taken": booking_taken,
+        "booking_amount": booking_amt,
+        "booking_date": booking_dt,
+        "products": o.get("products", ["Curtains"]),
         "completed_at": completed_at,
         "delay_comment": o.get("delay_comment", ""),
         "tailor": o.get("tailor") or "None",
         "fitter": o.get("fitter") or "None",
         "entries": o.get("entries", []),
-        "payments": o.get("payments", []), 
-        "total_bill": o.get("total_bill", 0) 
+        "quotation_data": quotation_data,
+        "quotation_id": quotation_id,
+        "payments": order_payments, 
+        "total_bill": total_bill 
     })
 
 # ================= UPDATE ORDER =================
 
 @app.route("/api/orders/<oid>", methods=["PUT"])
+@app.route("/orders/<oid>", methods=["PUT"])
 @token_required
 def update_order(oid):
     data = request.json
@@ -362,29 +590,78 @@ def update_order(oid):
     # ---- Check order exists ----
     existing_order = db.orders.find_one({"_id": oid})
     if not existing_order:
-        return jsonify({"error": "Order not found"}), 404
+        existing_order = db.orders.find_one({"order_id": oid})
+    if not existing_order and ObjectId.is_valid(oid):
+        existing_order = db.orders.find_one({"_id": ObjectId(oid)})
+
+    if not existing_order:
+        # If not existing, create it via upsert
+        return create_order()
 
     # ---- Handle customer update safely ----
     cid = existing_order.get("customer_id")
+    cust_name = (data.get("customer_name") or data.get("name") or existing_order.get("customer_name") or existing_order.get("name") or "").strip()
+    cust_phone = (data.get("phone") if data.get("phone") is not None else existing_order.get("phone", "")).strip()
+    cust_address = (data.get("address") if data.get("address") is not None else existing_order.get("address", "")).strip()
+    cust_showroom = (data.get("showroom") if data.get("showroom") is not None else existing_order.get("showroom", "")).strip()
 
-    # Convert to ObjectId if string
-    if isinstance(cid, str) and ObjectId.is_valid(cid):
-        cid = ObjectId(cid)
+    cust_updates = {}
+    if cust_name:
+        cust_updates["name"] = cust_name
+    if cust_phone is not None:
+        cust_updates["phone"] = cust_phone
+    if cust_address is not None:
+        cust_updates["address"] = cust_address
+    if cust_showroom is not None:
+        cust_updates["showroom"] = cust_showroom
+    cust_updates["updated_at"] = datetime.utcnow()
 
     if cid:
+        if isinstance(cid, str) and ObjectId.is_valid(cid):
+            cid = ObjectId(cid)
         db.customers.update_one(
             {"_id": cid},
-            {"$set": {
-                "name": data.get("customer_name"),
-                "phone": data.get("phone"),
-                "address": data.get("address"),
-                "showroom": data.get("showroom"),
-                "updated_at": datetime.utcnow()
-            }}
+            {"$set": cust_updates}
         )
+    else:
+        customer = None
+        if cust_phone:
+            customer = db.customers.find_one({"phone": cust_phone})
+        if not customer and cust_name:
+            customer = db.customers.find_one({"name": cust_name})
+        if customer:
+            cid = customer["_id"]
+            db.customers.update_one({"_id": cid}, {"$set": cust_updates})
+        elif cust_name:
+            cid = db.customers.insert_one({**cust_updates, "created_at": datetime.utcnow()}).inserted_id
+
+    # Auto-link quotation if customer has a saved quotation and order doesn't have quotation items yet
+    quotation_data = data.get("quotation_data", existing_order.get("quotation_data"))
+    quotation_id = data.get("quotation_id", existing_order.get("quotation_id", ""))
+    if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
+        found_quote = None
+        if quotation_id:
+            found_quote = db.quotations.find_one({"id": quotation_id})
+        if not found_quote and cust_phone:
+            found_quote = db.quotations.find_one({"phone": cust_phone})
+        if not found_quote and cust_name:
+            found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
+        if found_quote:
+            quotation_data = {
+                "id": found_quote.get("id"),
+                "customer_name": found_quote.get("customer_name"),
+                "phone": found_quote.get("phone", ""),
+                "date": found_quote.get("date", ""),
+                "items": found_quote.get("items", []),
+                "additional_discount": float(found_quote.get("additional_discount", 0) or 0),
+                "gst_percent": float(found_quote.get("gst_percent", 0) or 0),
+                "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
+                "total_amount": float(found_quote.get("total_amount", 0) or 0)
+            }
+            quotation_id = found_quote.get("id", "")
 
     # ---- Update order safely ----
-    status = data.get("status") or ""
+    status = data.get("status") or existing_order.get("status", "")
     completed_at = data.get("completed_at") or ""
     if status.strip().lower() == "completed":
         if not completed_at:
@@ -396,23 +673,45 @@ def update_order(oid):
     else:
         completed_at = ""
 
+    total_bill = data.get("total_bill", existing_order.get("total_bill", 0))
+    if float(total_bill or 0) == 0 and quotation_data and quotation_data.get("total_amount"):
+        total_bill = float(quotation_data.get("total_amount", 0) or 0)
+
+    order_updates = {
+        "customer_id": ObjectId(cid) if cid and ObjectId.is_valid(str(cid)) else str(cid) if cid else None,
+        "customer_name": cust_name,
+        "name": cust_name,
+        "phone": cust_phone,
+        "address": cust_address,
+        "showroom": cust_showroom,
+        "entries": data.get("entries", existing_order.get("entries", [])),
+        "status": status,
+        "status_dates": data.get("status_dates", existing_order.get("status_dates", {})),
+        "status_history": data.get("status_history", existing_order.get("status_history", [])),
+        "due_date": data.get("due_date", existing_order.get("due_date")),
+        "measurement_date": data.get("measurement_date", existing_order.get("measurement_date", "")),
+        "booking_amount_taken": bool(data.get("booking_amount_taken", existing_order.get("booking_amount_taken", False))),
+        "booking_amount": float(data.get("booking_amount", existing_order.get("booking_amount", 0)) or 0),
+        "booking_date": data.get("booking_date", existing_order.get("booking_date", "")),
+        "products": data.get("products", existing_order.get("products", ["Curtains"])),
+        "completed_at": completed_at,
+        "delay_comment": data.get("delay_comment", existing_order.get("delay_comment", "")),
+        "tailor": data.get("tailor", existing_order.get("tailor", "None")),
+        "fitter": data.get("fitter", existing_order.get("fitter", "None")),
+        "quotation_data": quotation_data,
+        "quotation_id": quotation_id,
+        "payments": data.get("payments", existing_order.get("payments", [])),
+        "total_bill": total_bill,
+        "updated_at": datetime.utcnow()
+    }
+
+    target_id = existing_order.get("_id") or oid
     db.orders.update_one(
-        {"_id": oid},
-        {"$set": {
-            "entries": data.get("entries", []),
-            "status": status,
-            "due_date": data.get("due_date"),
-            "completed_at": completed_at,
-            "delay_comment": data.get("delay_comment", existing_order.get("delay_comment", "")),
-            "tailor": data.get("tailor") or "None",
-            "fitter": data.get("fitter") or "None",
-            "payments": data.get("payments", []),
-            "total_bill": data.get("total_bill", 0),
-            "updated_at": datetime.utcnow()
-        }}
+        {"_id": target_id},
+        {"$set": order_updates}
     )
 
-    return jsonify({"status": "updated"})
+    return jsonify({"status": "updated", "order_id": str(target_id)})
 
 # ================= DELETE ORDER =================
 
@@ -662,6 +961,9 @@ def generate_ai_preview():
 # ================= QUOTATIONS ENDPOINTS =================
 
 @app.route("/api/quotations/list", methods=["GET"])
+@app.route("/api/quotations", methods=["GET"])
+@app.route("/quotations/list", methods=["GET"])
+@app.route("/quotations", methods=["GET"])
 @token_required
 def list_quotations():
     try:
@@ -683,6 +985,7 @@ def list_quotations():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/quotations/<qid>", methods=["GET"])
+@app.route("/quotations/<qid>", methods=["GET"])
 @token_required
 def get_quotation(qid):
     try:
@@ -701,6 +1004,7 @@ def get_quotation(qid):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/quotations", methods=["POST"])
+@app.route("/quotations", methods=["POST"])
 @token_required
 def create_quotation():
     try:
@@ -732,11 +1036,13 @@ def create_quotation():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/quotations/<qid>", methods=["PUT"])
+@app.route("/quotations/<qid>", methods=["PUT"])
 @token_required
 def update_quotation(qid):
     try:
         data = request.json
         payload = {
+            "id": qid,
             "customer_name": data.get("customer_name"),
             "phone": data.get("phone", ""),
             "date": data.get("date") or datetime.utcnow().isoformat(),
@@ -749,15 +1055,13 @@ def update_quotation(qid):
             "total_amount": data.get("total_amount", 0)
         }
         
-        result = db.quotations.update_one({"id": qid}, {"$set": payload})
-        if result.matched_count == 0:
-            return jsonify({"error": "Quotation not found"}), 404
-            
+        result = db.quotations.update_one({"id": qid}, {"$set": payload}, upsert=True)
         return jsonify({"status": "updated"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/quotations/<qid>", methods=["DELETE"])
+@app.route("/quotations/<qid>", methods=["DELETE"])
 @token_required
 def delete_quotation(qid):
     try:
