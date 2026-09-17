@@ -26,7 +26,8 @@ CORS(
         "origins": [
             "https://fabricapp.quiltanddrapes.com",
             "https://nestjs-fabric-app.vercel.app",
-            "http://localhost:4173"
+            "http://localhost:4173",
+            "http://localhost:3000",
         ]
     }},
     supports_credentials=True,
