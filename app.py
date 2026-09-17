@@ -20,12 +20,20 @@ import re
 app = Flask(__name__)
 
 # CORS configuration
+# CORS configuration
 CORS(
     app,
-    resources={r"/api/*": {
-        "origins": "*"
+    resources={r"/api/.*": {
+        "origins": [
+            "http://localhost:4173",
+            "http://localhost:3000",
+            "http://127.0.0.1:4173",
+            "http://127.0.0.1:3000",
+            "https://fabricapp.quiltanddrapes.com",
+            "https://nestjs-fabric-app.vercel.app"
+        ]
     }},
-    supports_credentials=False,
+    supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
@@ -36,6 +44,16 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["fabric_app"]
 fs = GridFS(db)
+
+# Ensure indexes for aggregation and sorting performance
+try:
+    db.orders.create_index([("created_at", DESCENDING)])
+    db.orders.create_index([("status", 1)])
+    db.orders.create_index([("customer_id", 1)])
+    db.orders.create_index([("customer_name", 1)])
+    db.customers.create_index([("phone", 1)])
+except Exception as e:
+    print(f"Index setup notice: {e}")
 
 STATUSES = [
     "Fabric Order Pending",
@@ -98,28 +116,30 @@ def login():
 
 # ================= DASHBOARD =================
 
+# ================= DASHBOARD =================
+
 @app.route("/api/dashboard/kpis")
 @token_required
 def dashboard_kpis():
-    pipeline = [
-        {"$facet": {
-            "total": [{"$count": "count"}],
-            "by_status": [
-                {"$group": {"_id": "$status", "count": {"$sum": 1}}}
-            ]
-        }}
+    # 1. Fast total count using indexed metadata
+    total_orders = db.orders.count_documents({})
+
+    # 2. Aggregation directly on status without $facet
+    # Only projects the indexed status field before grouping to keep RAM usage tiny
+    status_pipeline = [
+        {"$project": {"status": 1}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
     ]
-    
-    results = list(db.orders.aggregate(pipeline))[0]
+    status_groups = list(db.orders.aggregate(status_pipeline, allowDiskUse=True))
     
     # Initialize counts
     counts = {
-        "orders": results["total"][0]["count"] if results["total"] else 0,
+        "orders": total_orders,
         "fabric_pending": 0, "stitching": 0, "installation": 0, "completed": 0, "transit": 0
     }
     
-    # Map results from the single DB trip
-    for item in results["by_status"]:
+    # Map results
+    for item in status_groups:
         status = item["_id"]
         count = item["count"]
         if status in ["Fabric Order Pending", "Pending"]: counts["fabric_pending"] += count
@@ -253,208 +273,216 @@ def create_order():
 
 # ================= LIST ORDERS =================
 
+# ================= LIST ORDERS =================
+
 @app.route("/api/orders/list")
 @token_required
 def list_orders():
-    search_query = request.args.get("search", "").strip()
-    status_query = request.args.get("status", "").strip()
-    include_completed_str = request.args.get("include_completed", "true").strip().lower()
-    include_completed = include_completed_str in ["true", "1", "yes"]
+    try:
+        search_query = request.args.get("search", "").strip()
+        status_query = request.args.get("status", "").strip()
+        include_completed_str = request.args.get("include_completed", "true").strip().lower()
+        include_completed = include_completed_str in ["true", "1", "yes"]
 
-    # Pagination params
-    page = int(request.args.get("page", 1) or 1)
-    limit = int(request.args.get("limit", 0) or 0) # 0 means all (up to 1000)
+        # Pagination params
+        page = int(request.args.get("page", 1) or 1)
+        limit = int(request.args.get("limit", 0) or 0)  # 0 means all (up to 1000)
 
-    query_filter = {}
+        query_filter = {}
 
-    if status_query and status_query.upper() != "ALL":
-        query_filter["status"] = status_query
-    elif not include_completed:
-        query_filter["status"] = {"$ne": "Completed"}
+        if status_query and status_query.upper() != "ALL":
+            query_filter["status"] = status_query
+        elif not include_completed:
+            query_filter["status"] = {"$ne": "Completed"}
 
-    if search_query:
-        # Match customers by name, phone, or showroom
-        cust_ids = []
-        for c in db.customers.find({
-            "$or": [
-                {"name": {"$regex": search_query, "$options": "i"}},
+        if search_query:
+            cust_ids = []
+            for c in db.customers.find({
+                "$or": [
+                    {"name": {"$regex": search_query, "$options": "i"}},
+                    {"phone": {"$regex": search_query, "$options": "i"}},
+                    {"showroom": {"$regex": search_query, "$options": "i"}}
+                ]
+            }, {"_id": 1}):
+                cust_ids.append(c["_id"])
+                cust_ids.append(str(c["_id"]))
+
+            or_conditions = [
+                {"customer_id": {"$in": cust_ids}},
+                {"status": {"$regex": search_query, "$options": "i"}},
+                {"tailor": {"$regex": search_query, "$options": "i"}},
+                {"fitter": {"$regex": search_query, "$options": "i"}},
+                {"customer_name": {"$regex": search_query, "$options": "i"}},
                 {"phone": {"$regex": search_query, "$options": "i"}},
                 {"showroom": {"$regex": search_query, "$options": "i"}}
             ]
-        }, {"_id": 1}):
-            cust_ids.append(c["_id"])
-            cust_ids.append(str(c["_id"]))
 
-        # Build search or conditions safely
-        or_conditions = [
-            {"customer_id": {"$in": cust_ids}},
-            {"status": {"$regex": search_query, "$options": "i"}},
-            {"tailor": {"$regex": search_query, "$options": "i"}},
-            {"fitter": {"$regex": search_query, "$options": "i"}},
-            {"customer_name": {"$regex": search_query, "$options": "i"}},
-            {"phone": {"$regex": search_query, "$options": "i"}},
-            {"showroom": {"$regex": search_query, "$options": "i"}}
-        ]
+            if ObjectId.is_valid(search_query):
+                or_conditions.append({"_id": ObjectId(search_query)})
 
-        if ObjectId.is_valid(search_query):
-            or_conditions.append({"_id": ObjectId(search_query)})
+            if query_filter:
+                query_filter = {"$and": [query_filter, {"$or": or_conditions}]}
+            else:
+                query_filter = {"$or": or_conditions}
 
+        pipeline = []
         if query_filter:
-            query_filter = {"$and": [query_filter, {"$or": or_conditions}]}
+            pipeline.append({"$match": query_filter})
+
+        # Sort first to utilize the db.orders created_at index
+        pipeline.append({"$sort": {"created_at": -1}})
+
+        if limit > 0:
+            skip_count = max(0, (page - 1) * limit)
+            if skip_count > 0:
+                pipeline.append({"$skip": skip_count})
+            pipeline.append({"$limit": limit})
         else:
-            query_filter = {"$or": or_conditions}
+            pipeline.append({"$limit": 1000})
 
-    pipeline = [
-        {"$match": query_filter},
-
-        {
-            "$addFields": {
-                "customer_id_obj": {
-                    "$cond": {
-                        "if": {"$eq": [{"$type": "$customer_id"}, "objectId"]},
-                        "then": "$customer_id",
-                        "else": {
-                            "$cond": {
-                                "if": {"$eq": [{"$type": "$customer_id"}, "string"]},
-                                "then": {"$toObjectId": "$customer_id"},
-                                "else": None
+        pipeline.extend([
+            {
+                "$addFields": {
+                    "customer_id_obj": {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$customer_id"}, "objectId"]},
+                            "then": "$customer_id",
+                            "else": {
+                                "$cond": {
+                                    "if": {
+                                        "$and": [
+                                            {"$eq": [{"$type": "$customer_id"}, "string"]},
+                                            {"$eq": [{"$strLenCP": "$customer_id"}, 24]}
+                                        ]
+                                    },
+                                    "then": {"$toObjectId": "$customer_id"},
+                                    "else": None
+                                }
                             }
                         }
                     }
                 }
-            }
-        },
-
-        {
-            "$lookup": {
-                "from": "customers",
-                "localField": "customer_id_obj",
-                "foreignField": "_id",
-                "as": "customer_info"
-            }
-        },
-
-        {"$unwind": {"path": "$customer_info", "preserveNullAndEmptyArrays": True}},
-        {"$sort": {"created_at": -1}}
-    ]
-
-    if limit > 0:
-        skip_count = max(0, (page - 1) * limit)
-        if skip_count > 0:
-            pipeline.append({"$skip": skip_count})
-        pipeline.append({"$limit": limit})
-    else:
-        pipeline.append({"$limit": 1000})
-
-    orders = list(db.orders.aggregate(pipeline))
-
-    out = []
-
-    for o in orders:
-        cust = o.get("customer_info") or {}
-        entries = o.get("entries") or []
-
-        sqft = sum(float(e.get("SQFT", 0) or 0) for e in entries)
-
-        # Dynamic fallback for completed orders
-        completed_at = o.get("completed_at") or ""
-        if o.get("status", "").strip().lower() == "completed" and not completed_at:
-            fallback_dt = o.get("updated_at") or o.get("created_at")
-            if fallback_dt:
-                if isinstance(fallback_dt, datetime):
-                    completed_at = fallback_dt.isoformat()
-                else:
-                    completed_at = str(fallback_dt)
-            else:
-                completed_at = datetime.utcnow().isoformat()
-
-        cust_name = cust.get("name") or o.get("customer_name") or o.get("name") or "Unknown Client"
-        cust_phone = cust.get("phone") or o.get("phone", "")
-        cust_address = cust.get("address") or o.get("address", "")
-        cust_showroom = cust.get("showroom") or o.get("showroom", "")
-
-        quotation_data = o.get("quotation_data")
-        quotation_id = o.get("quotation_id", "")
-        if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
-            found_quote = None
-            if quotation_id:
-                found_quote = db.quotations.find_one({"id": quotation_id})
-            if not found_quote and cust_phone:
-                found_quote = db.quotations.find_one({"phone": cust_phone})
-            if not found_quote and cust_name and cust_name != "Unknown Client":
-                found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
-            if found_quote:
-                quotation_data = {
-                    "id": found_quote.get("id"),
-                    "customer_name": found_quote.get("customer_name"),
-                    "phone": found_quote.get("phone", ""),
-                    "date": found_quote.get("date", ""),
-                    "items": found_quote.get("items", []),
-                    "additional_discount": float(found_quote.get("additional_discount", 0) or 0),
-                    "gst_percent": float(found_quote.get("gst_percent", 0) or 0),
-                    "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
-                    "total_amount": float(found_quote.get("total_amount", 0) or 0)
+            },
+            {
+                "$lookup": {
+                    "from": "customers",
+                    "localField": "customer_id_obj",
+                    "foreignField": "_id",
+                    "as": "customer_info"
                 }
-                quotation_id = found_quote.get("id", "")
+            },
+            {"$unwind": {"path": "$customer_info", "preserveNullAndEmptyArrays": True}}
+        ])
 
-        total_bill = float(o.get("total_bill", 0) or 0)
-        if total_bill == 0 and quotation_data and quotation_data.get("total_amount"):
-            total_bill = float(quotation_data.get("total_amount", 0) or 0)
+        orders = list(db.orders.aggregate(pipeline, allowDiskUse=True))
 
-        # Check if booking advance / deposit is in payments
-        order_payments = o.get("payments", [])
-        booking_taken = bool(o.get("booking_amount_taken", False))
-        booking_amt = float(o.get("booking_amount", 0) or 0)
-        booking_dt = o.get("booking_date", "")
+        out = []
 
-        if not booking_amt and order_payments:
-            for p in order_payments:
-                meth = str(p.get("method", "")).lower()
-                ref = str(p.get("reference", "")).lower()
-                if "booking" in meth or "advance" in meth or "booking" in ref or "advance" in ref or "deposit" in meth or "deposit" in ref:
-                    booking_amt = float(p.get("amount", 0) or 0)
-                    booking_dt = p.get("date", "")
+        for o in orders:
+            cust = o.get("customer_info") or {}
+            entries = o.get("entries") or []
+
+            sqft = sum(float(e.get("SQFT", 0) or 0) for e in entries)
+
+            completed_at = o.get("completed_at") or ""
+            if o.get("status", "").strip().lower() == "completed" and not completed_at:
+                fallback_dt = o.get("updated_at") or o.get("created_at")
+                if fallback_dt:
+                    completed_at = fallback_dt.isoformat() if isinstance(fallback_dt, datetime) else str(fallback_dt)
+                else:
+                    completed_at = datetime.utcnow().isoformat()
+
+            cust_name = cust.get("name") or o.get("customer_name") or o.get("name") or "Unknown Client"
+            cust_phone = cust.get("phone") or o.get("phone", "")
+            cust_address = cust.get("address") or o.get("address", "")
+            cust_showroom = cust.get("showroom") or o.get("showroom", "")
+
+            quotation_data = o.get("quotation_data")
+            quotation_id = o.get("quotation_id", "")
+            if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
+                found_quote = None
+                if quotation_id:
+                    found_quote = db.quotations.find_one({"id": quotation_id})
+                if not found_quote and cust_phone:
+                    found_quote = db.quotations.find_one({"phone": cust_phone})
+                if not found_quote and cust_name and cust_name != "Unknown Client":
+                    found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
+                if found_quote:
+                    quotation_data = {
+                        "id": found_quote.get("id"),
+                        "customer_name": found_quote.get("customer_name"),
+                        "phone": found_quote.get("phone", ""),
+                        "date": found_quote.get("date", ""),
+                        "items": found_quote.get("items", []),
+                        "additional_discount": float(found_quote.get("additional_discount", 0) or 0),
+                        "gst_percent": float(found_quote.get("gst_percent", 0) or 0),
+                        "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
+                        "total_amount": float(found_quote.get("total_amount", 0) or 0)
+                    }
+                    quotation_id = found_quote.get("id", "")
+
+            total_bill = float(o.get("total_bill", 0) or 0)
+            if total_bill == 0 and quotation_data and quotation_data.get("total_amount"):
+                total_bill = float(quotation_data.get("total_amount", 0) or 0)
+
+            order_payments = o.get("payments", [])
+            booking_taken = bool(o.get("booking_amount_taken", False))
+            booking_amt = float(o.get("booking_amount", 0) or 0)
+            booking_dt = o.get("booking_date", "")
+
+            if not booking_amt and order_payments:
+                for p in order_payments:
+                    meth = str(p.get("method", "")).lower()
+                    ref = str(p.get("reference", "")).lower()
+                    if any(w in meth or w in ref for w in ["booking", "advance", "deposit"]):
+                        booking_amt = float(p.get("amount", 0) or 0)
+                        booking_dt = p.get("date", "")
+                        booking_taken = True
+                        break
+                if not booking_amt and len(order_payments) > 0 and float(order_payments[0].get("amount", 0) or 0) > 0:
+                    booking_amt = float(order_payments[0].get("amount", 0) or 0)
+                    booking_dt = order_payments[0].get("date", "")
                     booking_taken = True
-                    break
-            if not booking_amt and len(order_payments) > 0 and float(order_payments[0].get("amount", 0) or 0) > 0:
-                booking_amt = float(order_payments[0].get("amount", 0) or 0)
-                booking_dt = order_payments[0].get("date", "")
+
+            if booking_amt > 0:
                 booking_taken = True
 
-        if booking_amt > 0:
-            booking_taken = True
+            out.append({
+                "order_id": str(o["_id"]),
+                "name": cust_name,
+                "customer_name": cust_name,
+                "phone": cust_phone,
+                "address": cust_address,
+                "status": o.get("status", ""),
+                "status_dates": o.get("status_dates", {}),
+                "status_history": o.get("status_history", []),
+                "created_at": o.get("created_at"),
+                "due_date": o.get("due_date"),
+                "measurement_date": o.get("measurement_date", ""),
+                "booking_amount_taken": booking_taken,
+                "booking_amount": booking_amt,
+                "booking_date": booking_dt,
+                "products": o.get("products", ["Curtains"]),
+                "completed_at": completed_at,
+                "delay_comment": o.get("delay_comment", ""),
+                "showroom": cust_showroom,
+                "tailor": o.get("tailor") or "None",
+                "fitter": o.get("fitter") or "None",
+                "item_count": len(entries),
+                "entries": entries,
+                "quotation_data": quotation_data,
+                "quotation_id": quotation_id,
+                "payments": order_payments,
+                "total_bill": total_bill,
+                "sqft": round(sqft, 2)
+            })
 
-        out.append({
-            "order_id": str(o["_id"]),
-            "name": cust_name,
-            "customer_name": cust_name,
-            "phone": cust_phone,
-            "address": cust_address,
-            "status": o.get("status", ""),
-            "status_dates": o.get("status_dates", {}),
-            "status_history": o.get("status_history", []),
-            "created_at": o.get("created_at"),
-            "due_date": o.get("due_date"),
-            "measurement_date": o.get("measurement_date", ""),
-            "booking_amount_taken": booking_taken,
-            "booking_amount": booking_amt,
-            "booking_date": booking_dt,
-            "products": o.get("products", ["Curtains"]),
-            "completed_at": completed_at,
-            "delay_comment": o.get("delay_comment", ""),
-            "showroom": cust_showroom,
-            "tailor": o.get("tailor") or "None",
-            "fitter": o.get("fitter") or "None",
-            "item_count": len(entries),
-            "entries": entries,
-            "quotation_data": quotation_data,
-            "quotation_id": quotation_id,
-            "payments": order_payments,
-            "total_bill": total_bill,
-            "sqft": round(sqft, 2)
-        })
+        return jsonify(out)
 
-    return jsonify(out)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 # ================= REPLACE get_order in app.py =================
 @app.route("/api/orders/<oid>")
 @app.route("/orders/<oid>")
@@ -789,7 +817,7 @@ def billing_data():
     ])
     # ... rest of your logic remains the same
     
-    orders = list(db.orders.aggregate(pipeline))
+    orders = list(db.orders.aggregate(pipeline, allowDiskUse=True))
     result = []
     
     # Pre-define rates for faster access
