@@ -1,6 +1,7 @@
 
 # ================= IMPORTS =================
 import os
+import gc
 import uuid
 from datetime import datetime, timedelta
 from functools import wraps
@@ -439,14 +440,8 @@ def list_orders():
 
             quotation_data = o.get("quotation_data")
             quotation_id = o.get("quotation_id", "")
-            if not quotation_data or not quotation_data.get("items") or len(quotation_data.get("items")) == 0:
-                found_quote = None
-                if quotation_id:
-                    found_quote = db.quotations.find_one({"id": quotation_id})
-                if not found_quote and cust_phone:
-                    found_quote = db.quotations.find_one({"phone": cust_phone})
-                if not found_quote and cust_name and cust_name != "Unknown Client":
-                    found_quote = db.quotations.find_one({"customer_name": {"$regex": f"^{re.escape(cust_name)}$", "$options": "i"}})
+            if (not quotation_data or not quotation_data.get("items")) and quotation_id:
+                found_quote = db.quotations.find_one({"id": quotation_id})
                 if found_quote:
                     quotation_data = {
                         "id": found_quote.get("id"),
@@ -459,7 +454,6 @@ def list_orders():
                         "terms": found_quote.get("terms_conditions") or found_quote.get("terms", ""),
                         "total_amount": float(found_quote.get("total_amount", 0) or 0)
                     }
-                    quotation_id = found_quote.get("id", "")
 
             total_bill = float(o.get("total_bill", 0) or 0)
             if total_bill == 0 and quotation_data and quotation_data.get("total_amount"):
@@ -487,6 +481,18 @@ def list_orders():
             if booking_amt > 0:
                 booking_taken = True
 
+            # Sanitize entries for list view: remove heavy base64 images to prevent memory spikes
+            clean_entries = []
+            for e in entries:
+                e_clean = dict(e)
+                if "images" in e_clean and isinstance(e_clean["images"], list):
+                    e_clean["images"] = []
+                if "image" in e_clean:
+                    e_clean["image"] = ""
+                if "photo" in e_clean:
+                    e_clean["photo"] = ""
+                clean_entries.append(e_clean)
+
             out.append({
                 "order_id": str(o["_id"]),
                 "name": cust_name,
@@ -509,7 +515,7 @@ def list_orders():
                 "tailor": o.get("tailor") or "None",
                 "fitter": o.get("fitter") or "None",
                 "item_count": len(entries),
-                "entries": entries,
+                "entries": clean_entries,
                 "quotation_data": quotation_data,
                 "quotation_id": quotation_id,
                 "payments": order_payments,
@@ -517,7 +523,11 @@ def list_orders():
                 "sqft": round(sqft, 2)
             })
 
-        return jsonify(out)
+        response = jsonify(out)
+        del orders
+        del out
+        gc.collect()
+        return response
 
     except Exception as e:
         import traceback
@@ -920,7 +930,11 @@ def billing_data():
             "paid_total": sum(float(p.get("amount", 0) or 0) for p in o.get("payments", [])),
             "total_bill": o.get("total_bill", 0)
         })
-    return jsonify(result)
+    response = jsonify(result)
+    del orders
+    del result
+    gc.collect()
+    return response
 
 @app.route("/api/billing/<oid>/status", methods=["PATCH"])
 @token_required
@@ -1009,16 +1023,27 @@ def generate_ai_preview():
         ])
 
         # Find the image part in the response
+        result_preview = None
         for part in response.candidates[0].content.parts:
             if part.inline_data:
-                return jsonify({
-                    "status": "success", 
-                    "preview": base64.b64encode(part.inline_data.data).decode('utf-8')
-                })
+                result_preview = base64.b64encode(part.inline_data.data).decode('utf-8')
+                break
+
+        del window_bytes
+        del fabric_bytes
+        del response
+        gc.collect()
+
+        if result_preview:
+            return jsonify({
+                "status": "success", 
+                "preview": result_preview
+            })
         
         return jsonify({"error": "AI model did not return an image part"}), 500
         
     except Exception as e:
+        gc.collect()
         print(f"CRITICAL BACKEND ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
