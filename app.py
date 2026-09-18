@@ -20,23 +20,51 @@ import re
 app = Flask(__name__)
 
 # CORS configuration
-# CORS configuration
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:4173",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:4173",
+    "https://fabricapp.quiltanddrapes.com",
+    "https://nestjs-fabric-app.vercel.app"
+]
+
 CORS(
     app,
-    resources={r"/api/.*": {
-        "origins": [
-            "http://localhost:4173",
-            "http://localhost:3000",
-            "http://127.0.0.1:4173",
-            "http://127.0.0.1:3000",
-            "https://fabricapp.quiltanddrapes.com",
-            "https://nestjs-fabric-app.vercel.app"
-        ]
+    resources={r"/(api/.*|orders.*|billing.*|dashboard.*|quotations.*|customers.*)": {
+        "origins": ALLOWED_ORIGINS
     }},
     supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization"],
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        res = app.make_default_options_response()
+        origin = request.headers.get("Origin")
+        if origin:
+            res.headers["Access-Control-Allow-Origin"] = origin
+            res.headers["Access-Control-Allow-Credentials"] = "true"
+        else:
+            res.headers["Access-Control-Allow-Origin"] = "*"
+        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        res.headers["Access-Control-Max-Age"] = "86400"
+        return res
+
+@app.after_request
+def append_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+    return response
 
 SECRET_KEY = os.getenv("JWT_SECRET", "super_secret_key")
 
@@ -75,6 +103,9 @@ USERS = {
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if request.method == "OPTIONS":
+            return f(*args, **kwargs)
+
         auth_header = request.headers.get("Authorization")
         
         if not auth_header or not auth_header.startswith("Bearer "):
@@ -96,20 +127,29 @@ def token_required(f):
     return decorated
 
 
-@app.route("/api/login", methods=["POST"])
+@app.route("/api/login", methods=["POST", "OPTIONS"])
 def login():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
+    if request.method == "OPTIONS":
+        return app.make_default_options_response()
 
-    if username in USERS and USERS[username]["password"] == password:
+    data = request.json or {}
+    raw_user = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
+
+    matched_user = None
+    for u in USERS:
+        if u.lower() == raw_user.lower():
+            matched_user = u
+            break
+
+    if matched_user and USERS[matched_user]["password"] == password:
         token = jwt.encode({
-            "username": username,
-            "role": USERS[username]["role"],
-            "exp": datetime.utcnow() + timedelta(hours=10)
+            "username": matched_user,
+            "role": USERS[matched_user]["role"],
+            "exp": datetime.utcnow() + timedelta(days=7)
         }, SECRET_KEY, algorithm="HS256")
 
-        return jsonify({"token": token})
+        return jsonify({"token": token, "username": matched_user, "role": USERS[matched_user]["role"]})
 
     return jsonify({"error": "Invalid credentials"}), 401
 
