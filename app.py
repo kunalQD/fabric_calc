@@ -26,13 +26,18 @@ app = Flask(__name__)
 # Permissive CORS configuration to support local development, Render, custom domains, and AI Studio
 CORS(
     app,
-    resources={r"/*": {
-        "origins": "*"
+    resources={r"/api/*": {
+        "origins": [
+            "https://fabricapp.quiltanddrapes.com",
+            "https://nestjs-fabric-app.vercel.app",
+            "http://localhost:4173"
+        ]
     }},
-    supports_credentials=False,
-    allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
-    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
 )
+
 
 @app.before_request
 def handle_preflight():
