@@ -5,6 +5,7 @@ import sys
 import random
 import json
 import threading
+import gc
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -15,7 +16,7 @@ try:
 except ImportError:
     pass
 
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, Response
 from flask_cors import CORS
 from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
@@ -88,11 +89,6 @@ except Exception as conn_err:
     print(f"Warning: MongoDB client creation error: {conn_err}")
     client = MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
 
-# Resolve target database:
-# 1. Check explicit environment variables
-# 2. Inspect default database from URI
-# 3. Check existing databases on cluster
-# 4. Fallback to fabric_app
 target_db_name = os.getenv("MONGO_DB") or os.getenv("DB_NAME") or os.getenv("DATABASE_NAME")
 
 if not target_db_name:
@@ -121,6 +117,7 @@ def _setup_indexes():
     try:
         db.orders.create_index([("created_at", DESCENDING)], background=True)
         db.orders.create_index([("customer_id", 1)], background=True)
+        db.orders.create_index([("customer_code", 1)], background=True)
         db.customers.create_index([("created_at", DESCENDING)], background=True)
         db.customers.create_index([("phone", 1)], background=True)
         db.customers.create_index([("customer_code", 1)], background=True)
@@ -131,11 +128,28 @@ threading.Thread(target=_setup_indexes, daemon=True).start()
 
 # ================= JSON & DATA SERIALIZATION HELPERS =================
 
+def json_default_serializer(obj):
+    """Memory-efficient JSON encoder callback for C-speed json.dumps"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, (set, tuple)):
+        return list(obj)
+    if hasattr(obj, '__str__'):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+def json_response(data, status=200):
+    """Encodes response directly without deep-copying trees in memory"""
+    return Response(
+        json.dumps(data, default=json_default_serializer),
+        status=status,
+        mimetype="application/json"
+    )
+
 def json_serialize(obj):
-    """
-    Recursively convert BSON and Python types (ObjectId, datetime, sets)
-    to JSON-serializable types to guarantee jsonify never throws TypeError.
-    """
+    """Legacy helper preserved for backward compatibility"""
     if obj is None:
         return None
     if isinstance(obj, ObjectId):
@@ -210,9 +224,6 @@ def token_required(f):
     def decorated(*args, **kwargs):
         auth_header = request.headers.get("Authorization")
 
-        # Lenient authentication for read-only GET requests:
-        # If token is missing on a GET request, allow reading data with default admin identity
-        # so customer dashboard, reports, and insights NEVER show blank screens due to expired tokens.
         if not auth_header or not auth_header.startswith("Bearer "):
             if request.method in ["GET", "OPTIONS"]:
                 request.user = {"username": "reader", "role": "admin"}
@@ -221,7 +232,6 @@ def token_required(f):
 
         token = auth_header.split(" ")[1].strip()
 
-        # Support client-side generated local tokens (e.g. qd_local_token_adminqd_12345)
         if token.startswith("qd_local_token_"):
             parts = token.split("_")
             user_name = parts[3] if len(parts) >= 4 else "admin"
@@ -233,7 +243,6 @@ def token_required(f):
             data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
             request.user = data
         except jwt.ExpiredSignatureError:
-            # On GET requests, allow expired token read rather than returning an empty screen
             if request.method in ["GET", "OPTIONS"]:
                 request.user = {"username": "guest", "role": "admin"}
                 return f(*args, **kwargs)
@@ -261,7 +270,6 @@ def login():
         username = data.get("username", "").strip()
         password = data.get("password", "").strip()
 
-        # Standard accounts check
         if username in USERS and USERS[username]["password"] == password:
             token = jwt.encode({
                 "username": username,
@@ -277,7 +285,6 @@ def login():
                 }
             })
 
-        # Fallback permissive match for administrative credentials
         if username.lower() in ["admin", "adminqd", "quiltndrapes"] and password in ["adminQD", "admin123", "admin"]:
             token = jwt.encode({
                 "username": username,
@@ -311,7 +318,7 @@ def health_check():
     except Exception as e:
         db_status = f"error: {str(e)}"
 
-    return jsonify(json_serialize({
+    return json_response({
         "status": "ok",
         "service": "fabric-calc-backend",
         "database": db_status,
@@ -320,7 +327,7 @@ def health_check():
         "total_customers": cust_count,
         "total_orders": ord_count,
         "time": datetime.utcnow().isoformat()
-    }))
+    })
 
 
 # ================= DASHBOARD KPIS =================
@@ -338,11 +345,9 @@ def dashboard_kpis():
             "transit": 0
         }
 
-        # Safe counting without heavy aggregation limits
         total_orders = db.orders.count_documents({})
         counts["orders"] = total_orders
 
-        # Fast group by status
         cursor = db.orders.aggregate([
             {"$group": {"_id": "$status", "count": {"$sum": 1}}}
         ])
@@ -361,7 +366,7 @@ def dashboard_kpis():
             elif "transit" in status or "cutting" in status:
                 counts["transit"] += c
 
-        return jsonify(json_serialize(counts))
+        return json_response(counts)
     except Exception as e:
         print(f"Error calculating dashboard KPIs: {e}")
         return jsonify({
@@ -441,7 +446,7 @@ def resolve_order_financials(o, sqft=0.0):
     return total_bill, total_paid, balance_due, booking_amt
 
 
-# ================= LIST ORDERS (ROBUST & FAST) =================
+# ================= LIST ORDERS (STREAMLINED & LOW-MEMORY) =================
 
 @app.route("/api/orders/list", methods=["GET"])
 @token_required
@@ -457,7 +462,6 @@ def list_orders():
         elif status_param:
             query_filter["status"] = status_param
 
-        # Match customer query if searching
         if search_query:
             cust_ids = []
             try:
@@ -491,10 +495,27 @@ def list_orders():
             else:
                 query_filter = search_cond
 
-        # Fetch orders directly without error-prone aggregation pipelines
-        raw_orders = list(db.orders.find(query_filter).sort("created_at", -1).limit(500 if search_query else 300))
+        # Project needed subfields on entries so heavy calculation objects aren't pulled into RAM
+        orders_projection = {
+            "customer_id": 1, "customer_code": 1, "customer_name": 1,
+            "phone": 1, "address": 1, "showroom": 1, "status": 1,
+            "status_dates": 1, "measurement_date": 1, "created_at": 1,
+            "due_date": 1, "completed_at": 1, "delay_comment": 1,
+            "products": 1, "tailor": 1, "fitter": 1,
+            "total_bill": 1, "totalBill": 1, "total_amount": 1, "totalAmount": 1,
+            "grand_total": 1, "grandTotal": 1, "bill_amount": 1, "billAmount": 1,
+            "billing_amount": 1, "booking_amount": 1, "advance": 1,
+            "advance_amount": 1, "deposit": 1, "payments": 1, "balance": 1,
+            "balance_due": 1, "due_amount": 1, "pending_amount": 1,
+            "balanceAmount": 1, "quotation_id": 1, "updated_at": 1,
+            "booking_amount_taken": 1, "booking_date": 1,
+            "entries.SQFT": 1, "entries.sqft": 1, "entries.stitch_type": 1,
+            "entries.Stitch": 1, "entries.product_type": 1
+        }
 
-        # Collect customer references for fast batch lookup
+        raw_orders = list(db.orders.find(query_filter, orders_projection).sort("created_at", -1).limit(500 if search_query else 300))
+
+        # Collect customer keys for batch lookup
         cust_keys = []
         for o in raw_orders:
             cid = o.get("customer_id")
@@ -509,7 +530,6 @@ def list_orders():
             if code:
                 cust_keys.append(code)
 
-        # Batch load customers
         cust_map = {}
         if cust_keys:
             try:
@@ -518,6 +538,9 @@ def list_orders():
                         {"_id": {"$in": cust_keys}},
                         {"customer_code": {"$in": cust_keys}}
                     ]
+                }, {
+                    "_id": 1, "customer_code": 1, "name": 1,
+                    "phone": 1, "address": 1, "showroom": 1, "products": 1
                 }):
                     cust_map[str(c["_id"])] = c
                     if c.get("customer_code"):
@@ -590,13 +613,13 @@ def list_orders():
                 "sqft": round(sqft, 2)
             })
 
-        return jsonify(json_serialize(out))
+        return json_response(out)
     except Exception as e:
         print(f"Error in list_orders: {e}")
         return jsonify({"error": str(e)}), 500
 
 
-# ================= LIST CUSTOMERS =================
+# ================= LIST CUSTOMERS (OPTIMIZED MEMORY CONSUMPTION) =================
 
 @app.route("/api/customers/list", methods=["GET"])
 @token_required
@@ -616,76 +639,116 @@ def list_customers():
                 ]
             }
 
-        customers = list(db.customers.find(cust_query).sort("created_at", -1))
-        all_orders = list(db.orders.find({}, {
-            "_id": 1, "customer_id": 1, "customer_code": 1, "total_bill": 1,
-            "products": 1, "entries": 1, "created_at": 1, "status": 1
-        }))
+        # Stream order cursor and store ONLY lightweight summary primitives in RAM
+        orders_cursor = db.orders.find({}, {
+            "_id": 1,
+            "customer_id": 1,
+            "customer_code": 1,
+            "total_bill": 1,
+            "products": 1,
+            "entries.stitch_type": 1,
+            "entries.Stitch": 1,
+            "entries.product_type": 1,
+            "created_at": 1
+        })
 
-        # Map orders by customer_id and customer_code
-        orders_by_cust = {}
-        for o in all_orders:
+        orders_by_id = {}
+        orders_by_cid = {}
+        orders_by_code = {}
+        all_orphan_candidates = []
+
+        for o in orders_cursor:
+            oid_str = str(o["_id"])
             cid_raw = o.get("customer_id")
             cid_str = str(cid_raw) if cid_raw else ""
             code_str = (o.get("customer_code") or "").upper()
+            total_bill = safe_float(o.get("total_bill", 0))
+
+            # Normalize products directly, discarding heavy entries immediately
+            prods = normalize_products(o.get("products"))
+            if not prods:
+                derived = set()
+                for e in (o.get("entries") or []):
+                    st = (e.get("stitch_type") or e.get("Stitch") or "").lower()
+                    pt = (e.get("product_type") or "").lower()
+                    if "blind" in st or "blind" in pt:
+                        derived.add("Blinds")
+                    else:
+                        derived.add("Curtains")
+                prods = list(derived) if derived else ["Curtains"]
+
+            iso_dt = to_iso(o.get("created_at"))
+
+            order_summary = {
+                "_id": oid_str,
+                "customer_id": cid_str,
+                "customer_code": o.get("customer_code") or "",
+                "total_bill": total_bill,
+                "products": prods,
+                "created_at": iso_dt
+            }
+
+            orders_by_id[oid_str] = order_summary
+
             if cid_str:
-                orders_by_cust.setdefault(cid_str, []).append(o)
+                orders_by_cid.setdefault(cid_str, []).append(oid_str)
+                all_orphan_candidates.append(order_summary)
+
             if code_str:
-                orders_by_cust.setdefault(code_str, []).append(o)
+                orders_by_code.setdefault(code_str, []).append(oid_str)
+
+        # Stream customers directly with projection
+        customers_cursor = db.customers.find(
+            cust_query,
+            {
+                "_id": 1, "customer_code": 1, "name": 1, "phone": 1,
+                "address": 1, "showroom": 1, "products": 1, "products_purchased": 1,
+                "created_at": 1
+            }
+        ).sort("created_at", -1)
 
         customer_list = []
         seen_phones = set()
+        existing_cust_ids = set()
 
-        for c in customers:
+        for c in customers_cursor:
             cid_str = str(c["_id"])
+            existing_cust_ids.add(cid_str)
             code_str = (c.get("customer_code") or "").upper()
             phone = (c.get("phone") or "").strip()
 
-            # Gather related orders (avoiding duplicates)
-            rel_by_id = orders_by_cust.get(cid_str, [])
-            rel_by_code = orders_by_cust.get(code_str, []) if code_str else []
-            related_orders = []
+            rel_by_id = orders_by_cid.get(cid_str, [])
+            rel_by_code = orders_by_code.get(code_str, []) if code_str else []
+
             seen_oids = set()
-            for ro in rel_by_id + rel_by_code:
-                oid_str = str(ro["_id"])
-                if oid_str not in seen_oids:
-                    seen_oids.add(oid_str)
-                    related_orders.append(ro)
-
-            if phone:
-                seen_phones.add(phone)
-
+            order_ids = []
             total_billing = 0.0
             all_products = set()
-            order_ids = []
             latest_date = None
 
             cust_direct_prods = normalize_products(c.get("products") or c.get("products_purchased"))
             for p in cust_direct_prods:
                 all_products.add(p)
 
-            for ord_item in related_orders:
-                order_ids.append(str(ord_item["_id"]))
-                total_billing += safe_float(ord_item.get("total_bill", 0))
+            for oid_str in rel_by_id + rel_by_code:
+                if oid_str in seen_oids:
+                    continue
+                seen_oids.add(oid_str)
+                order_ids.append(oid_str)
 
-                prods = normalize_products(ord_item.get("products"))
-                if prods:
-                    for p in prods:
-                        if p: all_products.add(str(p).strip())
-                else:
-                    for e in ord_item.get("entries", []):
-                        st = (e.get("stitch_type") or e.get("Stitch") or "").lower()
-                        pt = (e.get("product_type") or "").lower()
-                        if "blind" in st or "blind" in pt:
-                            all_products.add("Blinds")
-                        else:
-                            all_products.add("Curtains")
+                ord_item = orders_by_id[oid_str]
+                total_billing += ord_item["total_bill"]
 
-                dt = ord_item.get("created_at")
+                for p in ord_item["products"]:
+                    all_products.add(p)
+
+                dt = ord_item["created_at"]
                 if dt:
-                    iso_dt = to_iso(dt)
-                    if not latest_date or (iso_dt and iso_dt > latest_date):
-                        latest_date = iso_dt
+                    if not latest_date or dt > latest_date:
+                        latest_date = dt
+
+            if phone:
+                seen_phones.add(phone)
 
             products_list = list(all_products) if all_products else ["Curtains"]
             customer_code = c.get("customer_code") or (order_ids[0].replace("ORD-", "")[:6].upper() if order_ids else "")
@@ -698,39 +761,36 @@ def list_customers():
                 "address": c.get("address") or "",
                 "showroom": c.get("showroom") or "Anna Nagar",
                 "total_billing": round(total_billing, 2),
-                "total_orders_count": len(related_orders),
+                "total_orders_count": len(seen_oids),
                 "products_purchased": products_list,
                 "last_order_date": latest_date or to_iso(c.get("created_at")),
                 "order_ids": order_ids
             })
 
         # Include orphan orders as customer records if needed
-        existing_cust_ids = {c["customer_id"] for c in customer_list}
-        for o in all_orders:
-            cid_raw = o.get("customer_id")
-            cid_str = str(cid_raw) if cid_raw else ""
+        for ord_summary in all_orphan_candidates:
+            cid_str = ord_summary["customer_id"]
             if cid_str and cid_str not in existing_cust_ids:
-                entries = o.get("entries", [])
-                prods = o.get("products") or ["Curtains"]
+                prods = ord_summary["products"] or ["Curtains"]
                 customer_list.append({
                     "customer_id": cid_str,
-                    "customer_code": o.get("customer_code") or "",
-                    "name": "Customer " + str(o["_id"])[:6],
+                    "customer_code": ord_summary["customer_code"] or "",
+                    "name": "Customer " + ord_summary["_id"][:6],
                     "phone": "",
                     "address": "",
                     "showroom": "Anna Nagar",
-                    "total_billing": safe_float(o.get("total_bill", 0)),
+                    "total_billing": ord_summary["total_bill"],
                     "total_orders_count": 1,
                     "products_purchased": prods if isinstance(prods, list) else ["Curtains"],
-                    "last_order_date": to_iso(o.get("created_at")),
-                    "order_ids": [str(o["_id"])]
+                    "last_order_date": ord_summary["created_at"],
+                    "order_ids": [ord_summary["_id"]]
                 })
                 existing_cust_ids.add(cid_str)
 
         # Safe sorting in Python 3
         customer_list.sort(key=lambda x: (safe_float(x.get("total_billing")), str(x.get("last_order_date") or "")), reverse=True)
 
-        return jsonify(json_serialize(customer_list))
+        return json_response(customer_list)
     except Exception as e:
         print(f"Error in list_customers: {e}")
         return jsonify({"error": str(e)}), 500
@@ -841,7 +901,7 @@ def create_order():
         }
 
         db.orders.insert_one(order)
-        return jsonify(json_serialize({"status": "success", "order_id": order["_id"], "customer_code": customer_code}))
+        return json_response({"status": "success", "order_id": order["_id"], "customer_code": customer_code})
     except Exception as e:
         print(f"Error creating order: {e}")
         return jsonify({"error": str(e)}), 500
@@ -885,7 +945,7 @@ def get_order(oid):
         customer_code = o.get("customer_code") or cust.get("customer_code") or (str(o["_id"]).replace("ORD-", "")[:6].upper() if str(o["_id"]) else "")
         order_prods = normalize_products(o.get("products") or cust.get("products")) or ["Curtains"]
 
-        return jsonify(json_serialize({
+        return json_response({
             "order_id": str(o["_id"]),
             "customer_code": customer_code,
             "customer_name": cust.get("name") or o.get("customer_name") or "Unknown Client",
@@ -913,7 +973,7 @@ def get_order(oid):
             "balance_due": balance_due,
             "paid_amount": total_paid,
             "quotation_id": o.get("quotation_id", "")
-        }))
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1022,14 +1082,17 @@ def billing_data():
             except ValueError:
                 pass
 
-        orders = list(db.orders.find(match_filter).sort("created_at", -1).limit(300))
+        orders = list(db.orders.find(match_filter, {
+            "_id": 1, "customer_id": 1, "customer_name": 1, "tailor": 1, "fitter": 1,
+            "entries": 1, "payment_status": 1, "payments": 1, "total_bill": 1, "created_at": 1
+        }).sort("created_at", -1).limit(300))
 
         # Lookup customer names
         cust_ids = [o.get("customer_id") for o in orders if o.get("customer_id")]
         valid_oids = [ObjectId(c) for c in cust_ids if isinstance(c, str) and ObjectId.is_valid(c)]
         cust_lookup = {}
         try:
-            for c in db.customers.find({"_id": {"$in": cust_ids + valid_oids}}):
+            for c in db.customers.find({"_id": {"$in": cust_ids + valid_oids}}, {"_id": 1, "name": 1}):
                 cust_lookup[str(c["_id"])] = c
         except Exception:
             pass
@@ -1092,7 +1155,7 @@ def billing_data():
                 "paid_total": sum(safe_float(p.get("amount", 0)) for p in (o.get("payments") or [])),
                 "total_bill": safe_float(o.get("total_bill", 0))
             })
-        return jsonify(json_serialize(result))
+        return json_response(result)
     except Exception as e:
         print(f"Error in billing_data: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1189,7 +1252,7 @@ def generate_ai_preview():
 
         for part in response.candidates[0].content.parts:
             if getattr(part, 'inline_data', None):
-                return jsonify({
+                return json_response({
                     "status": "success", 
                     "preview": base64.b64encode(part.inline_data.data).decode('utf-8')
                 })
@@ -1219,7 +1282,7 @@ def list_quotations():
         quotes = list(db.quotations.find(query).sort("date", -1).limit(300))
         for q in quotes:
             q["_id"] = str(q["_id"])
-        return jsonify(json_serialize(quotes))
+        return json_response(quotes)
     except Exception as e:
         print(f"Error listing quotations: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1238,7 +1301,7 @@ def get_quotation(qid):
             return jsonify({"error": "Quotation not found"}), 404
         
         q["_id"] = str(q["_id"])
-        return jsonify(json_serialize(q))
+        return json_response(q)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1269,7 +1332,7 @@ def create_quotation():
         }
         
         db.quotations.insert_one(payload)
-        return jsonify(json_serialize({"status": "created", "id": qid}))
+        return json_response({"status": "created", "id": qid})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
