@@ -2,6 +2,8 @@
 import os
 import uuid
 import sys
+import random
+import json
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -33,11 +35,10 @@ CORS(
             "http://localhost:4173"
         ]
     }},
-    supports_credentials=True,
-    allow_headers=["Content-Type", "Authorization"],
-    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    supports_credentials=False,
+    allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 )
-
 
 @app.before_request
 def handle_preflight():
@@ -234,6 +235,39 @@ def dashboard_kpis():
 
     return jsonify(counts)
 
+# ================= CUSTOMER CODE & PRODUCTS HELPERS =================
+
+def generate_customer_code():
+    chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    for _ in range(50):
+        code = "".join(random.choices(chars, k=6))
+        # Ensure code is unique in both customers and orders
+        if not db.customers.find_one({"customer_code": code}) and not db.orders.find_one({"customer_code": code}):
+            return code
+    return "".join(random.choices(chars, k=6))
+
+def normalize_products(raw):
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        raw = raw.strip()
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(p).strip() for p in parsed if str(p).strip()]
+            except Exception:
+                pass
+        return [p.strip() for p in raw.split(",") if p.strip()]
+    if isinstance(raw, (list, set, tuple)):
+        clean = []
+        for p in raw:
+            p_str = str(p).strip()
+            if p_str and p_str not in clean:
+                clean.append(p_str)
+        return clean
+    return []
+
 # ================= CREATE ORDER =================
 
 @app.route("/api/orders", methods=["POST"])
@@ -244,19 +278,57 @@ def create_order():
     if not data.get("customer_name") or not data.get("phone"):
         return jsonify({"error": "Customer name and phone required"}), 400
 
-    cust = {
-        "name": data.get("customer_name", "").strip(),
-        "phone": data.get("phone", "").strip(),
-        "address": data.get("address", "").strip(),
-        "showroom": data.get("showroom", "Anna Nagar").strip()
-    }
+    phone = data.get("phone", "").strip()
+    customer = db.customers.find_one({"phone": phone})
+
+    # 6-character unique identifier for customer and barcode
+    customer_code = (data.get("customer_code") or "").strip().upper()
+    if not customer_code or len(customer_code) != 6:
+        if customer and customer.get("customer_code"):
+            customer_code = customer.get("customer_code")
+        else:
+            customer_code = generate_customer_code()
 
     entries = data.get("entries", [])
 
-    customer = db.customers.find_one({"phone": cust["phone"]})
+    # Products extraction and normalization
+    raw_products = data.get("products")
+    products = normalize_products(raw_products)
+    if not products:
+        derived = set()
+        for e in entries:
+            st = (e.get("stitch_type") or e.get("Stitch") or "").lower()
+            pt = (e.get("product_type") or "").lower()
+            if "blind" in st or "blind" in pt:
+                if "roller" in st or "roller" in pt: derived.add("Roller Blinds")
+                elif "zebra" in st or "zebra" in pt: derived.add("Zebra Blinds")
+                elif "roman" in st or "roman" in pt: derived.add("Roman Blinds")
+                else: derived.add("Roller Blinds")
+            else:
+                derived.add("Curtains")
+        products = list(derived) if derived else ["Curtains"]
+
+    cust = {
+        "name": data.get("customer_name", "").strip(),
+        "phone": phone,
+        "address": data.get("address", "").strip(),
+        "showroom": data.get("showroom", "Anna Nagar").strip(),
+        "customer_code": customer_code,
+        "products": products,
+        "products_purchased": products
+    }
 
     if customer:
         cid = customer["_id"]
+        # Merge existing products with any newly selected products
+        existing_cust_prods = normalize_products(customer.get("products") or customer.get("products_purchased"))
+        merged_prods = list(dict.fromkeys(existing_cust_prods + products))
+        cust["products"] = merged_prods
+        cust["products_purchased"] = merged_prods
+        if customer.get("customer_code"):
+            customer_code = customer.get("customer_code")
+            cust["customer_code"] = customer_code
+
         db.customers.update_one(
             {"_id": cid},
             {"$set": {**cust, "updated_at": datetime.utcnow()}}
@@ -275,24 +347,14 @@ def create_order():
     else:
         completed_at = ""
 
-    # Products extraction
-    products = data.get("products")
-    if not products or not isinstance(products, list):
-        derived = set()
-        for e in entries:
-            st = (e.get("stitch_type") or e.get("Stitch") or "").lower()
-            pt = (e.get("product_type") or "").lower()
-            if "blind" in st or "blind" in pt:
-                if "roller" in st or "roller" in pt: derived.add("Roller Blinds")
-                elif "zebra" in st or "zebra" in pt: derived.add("Zebra Blinds")
-                elif "roman" in st or "roman" in pt: derived.add("Roman Blinds")
-                else: derived.add("Roller Blinds")
-            else:
-                derived.add("Curtains")
-        products = list(derived) if derived else ["Curtains"]
+    # Concise order ID with 6-char barcode identifier
+    order_id = (data.get("order_id") or "").strip()
+    if not order_id:
+        order_id = f"ORD-{customer_code}"
 
     order = {
-        "_id": str(uuid.uuid4()),
+        "_id": order_id,
+        "customer_code": customer_code,
         "customer_id": ObjectId(cid),
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
@@ -316,7 +378,7 @@ def create_order():
 
     db.orders.insert_one(order)
 
-    return jsonify({"status": "success", "order_id": order["_id"]})
+    return jsonify({"status": "success", "order_id": order["_id"], "customer_code": customer_code})
 
 
 # ================= LIST ORDERS (FULL LIST INCLUDING COMPLETED) =================
@@ -469,9 +531,9 @@ def list_orders():
             fallback_dt = o.get("updated_at") or o.get("created_at")
             completed_at = to_iso(fallback_dt) or datetime.utcnow().isoformat()
 
-        # Derive products if not explicitly stored
-        products = o.get("products")
-        if not products or not isinstance(products, list):
+        # Products extraction
+        products = normalize_products(o.get("products") or cust.get("products"))
+        if not products:
             derived = set()
             for e in entries:
                 st = (e.get("stitch_type") or e.get("Stitch") or "").lower()
@@ -485,10 +547,13 @@ def list_orders():
                     derived.add("Curtains")
             products = list(derived) if derived else ["Curtains"]
 
+        customer_code = o.get("customer_code") or cust.get("customer_code") or (str(o["_id"]).replace("ORD-", "")[:6].upper() if str(o["_id"]) else "")
+
         total_bill, total_paid, balance_due, booking_amt = resolve_order_financials(o, sqft)
 
         out.append({
             "order_id": str(o["_id"]),
+            "customer_code": customer_code,
             "name": cust.get("name", "Unknown Client"),
             "customer_name": cust.get("name", "Unknown Client"),
             "phone": cust.get("phone", ""),
@@ -574,13 +639,18 @@ def list_customers():
         order_ids = []
         latest_date = None
 
+        # Collect products from customer record directly
+        cust_direct_prods = normalize_products(c.get("products") or c.get("products_purchased"))
+        for p in cust_direct_prods:
+            all_products.add(p)
+
         for ord_item in related_orders:
             order_ids.append(str(ord_item["_id"]))
             total_billing += float(ord_item.get("total_bill", 0) or 0)
 
             # Collect products
-            prods = ord_item.get("products")
-            if isinstance(prods, list) and prods:
+            prods = normalize_products(ord_item.get("products"))
+            if prods:
                 for p in prods:
                     if p: all_products.add(str(p).strip())
             else:
@@ -600,9 +670,11 @@ def list_customers():
 
         # Format products list
         products_list = list(all_products) if all_products else ["Curtains"]
+        customer_code = c.get("customer_code") or (order_ids[0].replace("ORD-", "")[:6].upper() if order_ids else "")
 
         customer_list.append({
             "customer_id": cid_str,
+            "customer_code": customer_code,
             "name": c.get("name") or "Unnamed Client",
             "phone": phone,
             "address": c.get("address") or "",
@@ -671,8 +743,12 @@ def get_order(oid):
     sqft = sum(float(e.get("SQFT", 0) or e.get("sqft", 0) or 0) for e in entries)
     total_bill, total_paid, balance_due, booking_amt = resolve_order_financials(o, sqft)
 
+    customer_code = o.get("customer_code") or cust.get("customer_code") or (str(o["_id"]).replace("ORD-", "")[:6].upper() if str(o["_id"]) else "")
+    order_prods = normalize_products(o.get("products") or cust.get("products")) or ["Curtains"]
+
     return jsonify({
         "order_id": str(o["_id"]),
+        "customer_code": customer_code,
         "customer_name": cust.get("name", "Unknown Client"),
         "name": cust.get("name", "Unknown Client"),
         "phone": cust.get("phone", ""),
@@ -685,7 +761,7 @@ def get_order(oid):
         "created_at": to_iso(o.get("created_at")),
         "completed_at": completed_at,
         "delay_comment": o.get("delay_comment", ""),
-        "products": o.get("products", ["Curtains"]),
+        "products": order_prods,
         "tailor": o.get("tailor") or "None",
         "fitter": o.get("fitter") or "None",
         "entries": entries,
@@ -717,15 +793,12 @@ def update_order(oid):
     if isinstance(cid, str) and ObjectId.is_valid(cid):
         cid = ObjectId(cid)
 
+    cust_updates = {}
     if cid:
-        cust_updates = {}
         if "customer_name" in data: cust_updates["name"] = data.get("customer_name")
         if "phone" in data: cust_updates["phone"] = data.get("phone")
         if "address" in data: cust_updates["address"] = data.get("address")
         if "showroom" in data: cust_updates["showroom"] = data.get("showroom")
-        if cust_updates:
-            cust_updates["updated_at"] = datetime.utcnow()
-            db.customers.update_one({"_id": cid}, {"$set": cust_updates})
 
     status = data.get("status") or existing_order.get("status", "")
     completed_at = data.get("completed_at") or ""
@@ -748,12 +821,27 @@ def update_order(oid):
     if "fitter" in data: update_fields["fitter"] = data.get("fitter")
     if "payments" in data: update_fields["payments"] = data.get("payments")
     if "total_bill" in data: update_fields["total_bill"] = float(data.get("total_bill", 0) or 0)
-    if "products" in data: update_fields["products"] = data.get("products")
+    if "products" in data:
+        cleaned_prods = normalize_products(data.get("products"))
+        update_fields["products"] = cleaned_prods
+        if cid:
+            cust_updates["products"] = cleaned_prods
+            cust_updates["products_purchased"] = cleaned_prods
+    if "customer_code" in data and data.get("customer_code"):
+        code = str(data.get("customer_code")).strip().upper()
+        if len(code) == 6:
+            update_fields["customer_code"] = code
+            if cid:
+                cust_updates["customer_code"] = code
     if "status_dates" in data: update_fields["status_dates"] = data.get("status_dates")
     if "measurement_date" in data: update_fields["measurement_date"] = data.get("measurement_date")
     if "booking_amount" in data: update_fields["booking_amount"] = float(data.get("booking_amount", 0) or 0)
     if "booking_date" in data: update_fields["booking_date"] = data.get("booking_date")
     if "booking_amount_taken" in data: update_fields["booking_amount_taken"] = bool(data.get("booking_amount_taken", False))
+
+    if cid and cust_updates:
+        cust_updates["updated_at"] = datetime.utcnow()
+        db.customers.update_one({"_id": cid}, {"$set": cust_updates})
 
     target_id = existing_order["_id"]
     db.orders.update_one({"_id": target_id}, {"$set": update_fields})
